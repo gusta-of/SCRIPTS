@@ -4,7 +4,7 @@ import re
 
 # PYTHON 3.14
 
-def analisar_logs_com_contexto(caminho_arquivo, contexto=5):
+def analisar_logs_com_contexto(caminho_arquivo, contexto=10):
     padrao_excecao = re.compile(r'Exception|Error|Traceback', re.IGNORECASE)
     blocos = []
 
