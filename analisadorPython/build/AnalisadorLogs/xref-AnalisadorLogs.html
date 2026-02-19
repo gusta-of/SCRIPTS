@@ -15,7 +15,7 @@
 
 <div class="node">
   <a name="analise.py"></a>
-  <a target="code" href="///C:/Users/gusta/workspace/SCRIPTS/analise.py" type="text/plain"><tt>analise.py</tt></a>
+  <a target="code" href="///C:/Users/gusta/workspace/SCRIPTS/analisadorPython/analise.py" type="text/plain"><tt>analise.py</tt></a>
 <span class="moduletype">Script</span>  <div class="import">
 imports:
     <a href="#_collections_abc">_collections_abc</a>
@@ -171,12 +171,9 @@ imports:
  &#8226;   <a href="#sre_constants">sre_constants</a>
  &#8226;   <a href="#sre_parse">sre_parse</a>
  &#8226;   <a href="#stat">stat</a>
- &#8226;   <a href="#tkinter">tkinter</a>
- &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
- &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
- &#8226;   <a href="#tkinter.scrolledtext">tkinter.scrolledtext</a>
  &#8226;   <a href="#traceback">traceback</a>
  &#8226;   <a href="#types">types</a>
+ &#8226;   <a href="#ui.app">ui.app</a>
  &#8226;   <a href="#warnings">warnings</a>
  &#8226;   <a href="#weakref">weakref</a>
 
@@ -245,9 +242,11 @@ imported by:
 <span class="moduletype">SourceModule</span>  <div class="import">
 imported by:
     <a href="#codeop">codeop</a>
+ &#8226;   <a href="#core.log_analyzer">core.log_analyzer</a>
  &#8226;   <a href="#importlib.metadata">importlib.metadata</a>
  &#8226;   <a href="#importlib.metadata._meta">importlib.metadata._meta</a>
  &#8226;   <a href="#importlib.resources.readers">importlib.resources.readers</a>
+ &#8226;   <a href="#ui.app">ui.app</a>
 
   </div>
 
@@ -1868,6 +1867,43 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="core"></a>
+  <a target="code" href="///C:/Users/gusta/workspace/SCRIPTS/analisadorPython/core/__init__.py" type="text/plain"><tt>core</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#core.log_analyzer">core.log_analyzer</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#core.log_analyzer">core.log_analyzer</a>
+ &#8226;   <a href="#ui.app">ui.app</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="core.log_analyzer"></a>
+  <a target="code" href="///C:/Users/gusta/workspace/SCRIPTS/analisadorPython/core/log_analyzer.py" type="text/plain"><tt>core.log_analyzer</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#core">core</a>
+ &#8226;   <a href="#dataclasses">dataclasses</a>
+ &#8226;   <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#re">re</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#core">core</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="csv"></a>
   <a target="code" href="///C:/Users/gusta/AppData/Local/Python/pythoncore-3.14-64/Lib/csv.py" type="text/plain"><tt>csv</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -1907,6 +1943,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#_colorize">_colorize</a>
+ &#8226;   <a href="#core.log_analyzer">core.log_analyzer</a>
  &#8226;   <a href="#pprint">pprint</a>
 
   </div>
@@ -6603,11 +6640,13 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#importlib.metadata">importlib.metadata</a>
+    <a href="#core.log_analyzer">core.log_analyzer</a>
+ &#8226;   <a href="#importlib.metadata">importlib.metadata</a>
  &#8226;   <a href="#importlib.resources._common">importlib.resources._common</a>
  &#8226;   <a href="#importlib.resources.abc">importlib.resources.abc</a>
  &#8226;   <a href="#importlib.resources.readers">importlib.resources.readers</a>
  &#8226;   <a href="#pathlib._os">pathlib._os</a>
+ &#8226;   <a href="#ui.app">ui.app</a>
  &#8226;   <a href="#zipfile._path">zipfile._path</a>
 
   </div>
@@ -6852,6 +6891,7 @@ imported by:
  &#8226;   <a href="#analise.py">analise.py</a>
  &#8226;   <a href="#argparse">argparse</a>
  &#8226;   <a href="#ast">ast</a>
+ &#8226;   <a href="#core.log_analyzer">core.log_analyzer</a>
  &#8226;   <a href="#csv">csv</a>
  &#8226;   <a href="#dataclasses">dataclasses</a>
  &#8226;   <a href="#difflib">difflib</a>
@@ -7566,6 +7606,7 @@ imported by:
  &#8226;   <a href="#importlib.util">importlib.util</a>
  &#8226;   <a href="#logging">logging</a>
  &#8226;   <a href="#subprocess">subprocess</a>
+ &#8226;   <a href="#ui.app">ui.app</a>
  &#8226;   <a href="#zipfile">zipfile</a>
 
   </div>
@@ -7620,6 +7661,7 @@ imports:
  &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.scrolledtext">tkinter.scrolledtext</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#traceback">traceback</a>
  &#8226;   <a href="#types">types</a>
  &#8226;   <a href="#warnings">warnings</a>
@@ -7627,14 +7669,15 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#analise.py">analise.py</a>
- &#8226;   <a href="#tkinter.commondialog">tkinter.commondialog</a>
+    <a href="#tkinter.commondialog">tkinter.commondialog</a>
  &#8226;   <a href="#tkinter.constants">tkinter.constants</a>
  &#8226;   <a href="#tkinter.dialog">tkinter.dialog</a>
  &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.scrolledtext">tkinter.scrolledtext</a>
  &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#ui.app">ui.app</a>
 
   </div>
 
@@ -7707,8 +7750,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#analise.py">analise.py</a>
- &#8226;   <a href="#tkinter">tkinter</a>
+    <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#ui.app">ui.app</a>
 
   </div>
 
@@ -7725,9 +7768,9 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#analise.py">analise.py</a>
- &#8226;   <a href="#tkinter">tkinter</a>
+    <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.simpledialog">tkinter.simpledialog</a>
+ &#8226;   <a href="#ui.app">ui.app</a>
 
   </div>
 
@@ -7744,8 +7787,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#analise.py">analise.py</a>
- &#8226;   <a href="#tkinter">tkinter</a>
+    <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#ui.app">ui.app</a>
 
   </div>
 
@@ -7763,6 +7806,23 @@ imports:
   <div class="import">
 imported by:
     <a href="#tkinter.filedialog">tkinter.filedialog</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tkinter.ttk"></a>
+  <a target="code" href="///C:/Users/gusta/AppData/Local/Python/pythoncore-3.14-64/Lib/tkinter/ttk.py" type="text/plain"><tt>tkinter.ttk</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#tkinter">tkinter</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#ui.app">ui.app</a>
 
   </div>
 
@@ -7944,6 +8004,48 @@ imported by:
  &#8226;   <a href="#importlib.metadata._meta">importlib.metadata._meta</a>
  &#8226;   <a href="#importlib.resources._common">importlib.resources._common</a>
  &#8226;   <a href="#importlib.resources.abc">importlib.resources.abc</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="ui"></a>
+  <a target="code" href="///C:/Users/gusta/workspace/SCRIPTS/analisadorPython/ui/__init__.py" type="text/plain"><tt>ui</tt></a>
+<span class="moduletype">Package</span>  <div class="import">
+imports:
+    <a href="#ui.app">ui.app</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#ui.app">ui.app</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="ui.app"></a>
+  <a target="code" href="///C:/Users/gusta/workspace/SCRIPTS/analisadorPython/ui/app.py" type="text/plain"><tt>ui.app</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#core">core</a>
+ &#8226;   <a href="#pathlib">pathlib</a>
+ &#8226;   <a href="#threading">threading</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
+ &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
+ &#8226;   <a href="#tkinter.scrolledtext">tkinter.scrolledtext</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#ui">ui</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#analise.py">analise.py</a>
+ &#8226;   <a href="#ui">ui</a>
 
   </div>
 
