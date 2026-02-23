@@ -8,7 +8,6 @@ import re
 
 MAX_FILE_SIZE_MB = 50
 DEFAULT_CONTEXT = 30
-FIXED_LINES_ABOVE = 10
 DEFAULT_NO_EXCEPTION_MESSAGE = "Nenhuma excecao encontrada no log."
 DEFAULT_SEPARATOR = "\n" + ("-" * 72) + "\n"
 DEFAULT_KEYWORDS = ("Exception", "Error", "Traceback", "CRITICAL", "FATAL")
@@ -87,9 +86,10 @@ def extract_exception_blocks_from_lines(
 
     for idx, line in enumerate(lines):
         if resolved_pattern.search(line):
-            start = max(idx - FIXED_LINES_ABOVE, 0)
+            start = idx
             end = min(idx + below_context + 1, len(lines))
-            section = "".join(lines[start:end]).rstrip()
+            header = f"[Linha {idx + 1}]\n"
+            section = header + "".join(lines[start:end]).rstrip()
             blocks.append(section)
 
     if not blocks:

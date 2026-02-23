@@ -24,11 +24,11 @@ class TestLogAnalyzerCore(unittest.TestCase):
 
         self.assertEqual(result.block_count, 1)
         self.assertEqual(len(result.blocks), 1)
-        self.assertIn("line 2", result.content)
+        self.assertIn("[Linha 3]", result.content)
         self.assertIn("Traceback", result.content)
         self.assertIn("line 4", result.content)
 
-    def test_extract_exception_blocks_uses_fixed_10_lines_above(self) -> None:
+    def test_extract_exception_blocks_starts_at_error_line(self) -> None:
         lines = [f"line {idx}\n" for idx in range(1, 30)]
         lines[20] = "ValueError: boom\n"
 
@@ -36,9 +36,10 @@ class TestLogAnalyzerCore(unittest.TestCase):
 
         self.assertEqual(result.block_count, 1)
         block_lines = result.blocks[0].splitlines()
-        self.assertEqual(block_lines[0], "line 11")
+        self.assertEqual(block_lines[0], "[Linha 21]")
+        self.assertEqual(block_lines[1], "ValueError: boom")
         self.assertEqual(block_lines[-1], "line 23")
-        self.assertEqual(len(block_lines), 13)
+        self.assertEqual(len(block_lines), 4)
 
     def test_extract_exception_blocks_from_lines_without_matches(self) -> None:
         lines = ["ok\n", "still ok\n"]
