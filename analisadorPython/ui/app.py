@@ -50,7 +50,9 @@ class LogAnalyzerApp:
         self.stack_context_value_label: ttk.Label | None = None
         self.stack_context_info_label: ttk.Label | None = None
         self.stack_above_output: scrolledtext.ScrolledText | None = None
+        self.stack_above_xscroll: ttk.Scrollbar | None = None
         self.stack_current_output: scrolledtext.ScrolledText | None = None
+        self.stack_current_xscroll: ttk.Scrollbar | None = None
         self.stack_current_block_index = -1
 
         self._configure_style()
@@ -820,7 +822,7 @@ class LogAnalyzerApp:
         container.pack(fill="both", expand=True)
         container.columnconfigure(0, weight=1)
         container.rowconfigure(4, weight=1)
-        container.rowconfigure(6, weight=1)
+        container.rowconfigure(7, weight=1)
 
         ttk.Label(
             container,
@@ -863,8 +865,11 @@ class LogAnalyzerApp:
             state="disabled",
         )
         self.stack_above_output.grid(row=4, column=0, sticky="nsew", pady=(4, 10))
+        self.stack_above_xscroll = ttk.Scrollbar(container, orient="horizontal", command=self.stack_above_output.xview)
+        self.stack_above_xscroll.grid(row=5, column=0, sticky="ew", pady=(0, 8))
+        self.stack_above_output.configure(xscrollcommand=self.stack_above_xscroll.set)
 
-        ttk.Label(container, text="Bloco atual", style="CardTitle.TLabel").grid(row=5, column=0, sticky="nw")
+        ttk.Label(container, text="Bloco atual", style="CardTitle.TLabel").grid(row=6, column=0, sticky="nw")
         self.stack_current_output = scrolledtext.ScrolledText(
             container,
             wrap=tk.NONE,
@@ -877,9 +882,12 @@ class LogAnalyzerApp:
             pady=10,
             state="disabled",
         )
-        self.stack_current_output.grid(row=6, column=0, sticky="nsew", pady=(4, 0))
+        self.stack_current_output.grid(row=7, column=0, sticky="nsew", pady=(4, 0))
+        self.stack_current_xscroll = ttk.Scrollbar(container, orient="horizontal", command=self.stack_current_output.xview)
+        self.stack_current_xscroll.grid(row=8, column=0, sticky="ew", pady=(0, 10))
+        self.stack_current_output.configure(xscrollcommand=self.stack_current_xscroll.set)
 
-        ttk.Button(container, text="Fechar", command=self._close_stack_modal).grid(row=7, column=0, sticky="e", pady=(12, 0))
+        ttk.Button(container, text="Fechar", command=self._close_stack_modal).grid(row=9, column=0, sticky="e", pady=(12, 0))
         self._refresh_stack_modal_content()
 
     def _close_stack_modal(self) -> None:
@@ -891,7 +899,9 @@ class LogAnalyzerApp:
         self.stack_context_value_label = None
         self.stack_context_info_label = None
         self.stack_above_output = None
+        self.stack_above_xscroll = None
         self.stack_current_output = None
+        self.stack_current_xscroll = None
 
     def _on_stack_context_changed(self, value: str) -> None:
         context_value = int(round(float(value)))
