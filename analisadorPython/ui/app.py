@@ -776,7 +776,7 @@ class LogAnalyzerApp:
             return
 
         self.selected_block_index = index
-        self.displayed_content = self.exception_blocks[index]
+        self.displayed_content = self._build_stack_current_text(index)
         self._set_output_text(self.displayed_content)
 
         for idx, btn in enumerate(self.block_buttons):
@@ -911,7 +911,7 @@ class LogAnalyzerApp:
 
         above_count = self.stack_context_var.get()
         above_text = self._build_stack_above_text(self.stack_current_block_index, above_count)
-        block_text = self.exception_blocks[self.stack_current_block_index]
+        block_text = self._build_stack_current_text(self.stack_current_block_index)
         self._set_scrolled_text(self.stack_above_output, above_text)
         self._set_scrolled_text(self.stack_current_output, block_text)
         if self.stack_context_info_label is not None:
@@ -944,6 +944,25 @@ class LogAnalyzerApp:
         numbered_lines = [
             f"{line_no:>6}: {line.rstrip()}"
             for line_no, line in enumerate(context_lines, start=start_idx + 1)
+        ]
+        return "\n".join(numbered_lines)
+
+    def _build_stack_current_text(self, block_index: int) -> str:
+        if block_index < 0 or block_index >= len(self.exception_blocks):
+            return "Bloco invalido."
+
+        block = self.exception_blocks[block_index]
+        lines = block.splitlines()
+        if len(lines) <= 1:
+            return block
+
+        first_hit_line = self._extract_first_hit_line_number(block)
+        if first_hit_line is None:
+            return block
+
+        numbered_lines = [
+            f"{line_no:>6}: {line.rstrip()}"
+            for line_no, line in enumerate(lines[1:], start=first_hit_line)
         ]
         return "\n".join(numbered_lines)
 
@@ -1360,7 +1379,10 @@ class LogAnalyzerApp:
             self._render_current_search_highlights()
             return
 
-        source_blocks = self.exception_blocks if self.exception_blocks else [self.displayed_content]
+        if self.exception_blocks:
+            source_blocks = [self._build_stack_current_text(i) for i in range(len(self.exception_blocks))]
+        else:
+            source_blocks = [self.displayed_content]
         for block_index, block_text in enumerate(source_blocks):
             for start, end in self._find_term_offsets(block_text, term):
                 self.highlights.append((block_index, start, end))
