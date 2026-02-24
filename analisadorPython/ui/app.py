@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-from core import DEFAULT_CONTEXT, DEFAULT_KEYWORDS, MAX_FILE_SIZE_MB, extract_exception_blocks, validate_input_path
+from core import DEFAULT_CONTEXT, DEFAULT_KEYWORDS, MAX_FILE_SIZE_MB, extract_exception_blocks_from_lines, validate_input_path
 
 
 class LogAnalyzerApp:
@@ -20,6 +21,7 @@ class LogAnalyzerApp:
         self.file_path: Path | None = None
         self.analysis_content = ""
         self.displayed_content = ""
+        self.source_lines: list[str] = []
         self.exception_blocks: list[str] = []
         self.block_buttons: list[tk.Button] = []
         self.selected_block_index = -1
@@ -42,6 +44,14 @@ class LogAnalyzerApp:
         self.metric_card_frames: list[ttk.Frame] = []
         self._keyword_label_wraplength = 130
         self.custom_keyword_color = "#6EE7B7"
+        self.stack_modal: tk.Toplevel | None = None
+        self.stack_context_var = tk.IntVar(value=40)
+        self.stack_context_scale: ttk.Scale | None = None
+        self.stack_context_value_label: ttk.Label | None = None
+        self.stack_context_info_label: ttk.Label | None = None
+        self.stack_above_output: scrolledtext.ScrolledText | None = None
+        self.stack_current_output: scrolledtext.ScrolledText | None = None
+        self.stack_current_block_index = -1
 
         self._configure_style()
         self._build_layout()
@@ -612,18 +622,25 @@ class LogAnalyzerApp:
 
     def _analyze_file_worker(self, path: Path) -> None:
         try:
-            result = extract_exception_blocks(
-                path,
+            with path.open("r", encoding="utf-8", errors="replace") as file_obj:
+                source_lines = file_obj.readlines()
+
+            result = extract_exception_blocks_from_lines(
+                source_lines,
                 context=self.context_var.get(),
                 keywords=self._active_keywords_in_order(),
                 ignored_terms=self.ignored_terms,
             )
-            self.root.after(0, lambda: self._on_analysis_success(path, result.content, list(result.blocks)))
+            self.root.after(
+                0,
+                lambda: self._on_analysis_success(path, result.content, list(result.blocks), source_lines),
+            )
         except Exception as exc:
             self.root.after(0, lambda: self._on_analysis_error(str(exc)))
 
-    def _on_analysis_success(self, path: Path, content: str, blocks: list[str]) -> None:
+    def _on_analysis_success(self, path: Path, content: str, blocks: list[str], source_lines: list[str]) -> None:
         self.analysis_content = content
+        self.source_lines = source_lines
         self.exception_blocks = blocks
         self.highlights = []
         self.current_highlight_index = -1
@@ -679,8 +696,12 @@ class LogAnalyzerApp:
             preview = self._build_block_preview(block)
             text = f"{title}\n{preview}"
 
+            card = tk.Frame(self.slider_inner, bg="#171B22")
+            card.grid(row=0, column=idx, padx=(0, 8), sticky="nsew")
+            card.columnconfigure(0, weight=1)
+
             btn = tk.Button(
-                self.slider_inner,
+                card,
                 text=text,
                 justify="left",
                 anchor="nw",
@@ -699,7 +720,28 @@ class LogAnalyzerApp:
                 padx=8,
                 pady=4,
             )
-            btn.grid(row=0, column=idx, padx=(0, 8), sticky="nsew")
+            btn.grid(row=0, column=0, sticky="nsew")
+
+            stack_button = tk.Button(
+                card,
+                text=f"Ver pilha acima: {self._build_stack_button_description(block)}",
+                justify="left",
+                anchor="w",
+                wraplength=260,
+                bg="#2A3342",
+                fg="#DCE7F3",
+                activebackground="#3A4558",
+                activeforeground="#FFFFFF",
+                relief="flat",
+                bd=0,
+                highlightthickness=0,
+                cursor="hand2",
+                command=lambda i=idx: self._open_stack_modal(i),
+                padx=8,
+                pady=4,
+                font=("Segoe UI", 8, "bold"),
+            )
+            stack_button.grid(row=1, column=0, sticky="ew", pady=(6, 0))
             self.block_buttons.append(btn)
 
         self.slider_canvas.xview_moveto(0)
@@ -720,6 +762,15 @@ class LogAnalyzerApp:
             preview = preview[:75].rstrip() + "..."
         return preview
 
+    def _build_stack_button_description(self, block: str) -> str:
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if len(lines) < 2:
+            return "Detalhes do bloco"
+        description = lines[1]
+        if len(description) > 42:
+            description = description[:42].rstrip() + "..."
+        return description
+
     def _select_exception_block(self, index: int) -> None:
         if index < 0 or index >= len(self.exception_blocks):
             return
@@ -736,6 +787,172 @@ class LogAnalyzerApp:
 
         self._ensure_selected_card_visible(index)
         self._render_current_search_highlights()
+
+    def _open_stack_modal(self, block_index: int) -> None:
+        if block_index < 0 or block_index >= len(self.exception_blocks):
+            return
+
+        self.stack_current_block_index = block_index
+        self.stack_context_var.set(40)
+
+        if self.stack_modal is not None and self.stack_modal.winfo_exists():
+            self.stack_modal.focus_force()
+            self._refresh_stack_modal_content()
+            return
+
+        modal = tk.Toplevel(self.root)
+        modal.title("Pilha acima do bloco")
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        modal_width = min(screen_width - 40, max(720, int(screen_width * 0.7)))
+        modal_height = min(screen_height - 80, max(520, int(screen_height * 0.7)))
+        pos_x = max(0, (screen_width - modal_width) // 2)
+        pos_y = max(0, (screen_height - modal_height) // 2)
+        modal.geometry(f"{modal_width}x{modal_height}+{pos_x}+{pos_y}")
+        modal.minsize(700, 500)
+        modal.configure(bg="#11161D")
+        modal.transient(self.root)
+        modal.grab_set()
+        modal.protocol("WM_DELETE_WINDOW", self._close_stack_modal)
+        self.stack_modal = modal
+
+        container = ttk.Frame(modal, padding=14)
+        container.pack(fill="both", expand=True)
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(4, weight=1)
+        container.rowconfigure(6, weight=1)
+
+        ttk.Label(
+            container,
+            text="Bloco atual e linhas acima",
+            style="Header.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
+
+        control_row = ttk.Frame(container)
+        control_row.grid(row=1, column=0, sticky="ew")
+        control_row.columnconfigure(1, weight=1)
+
+        ttk.Label(control_row, text="Linhas acima:").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.stack_context_scale = ttk.Scale(
+            control_row,
+            from_=40,
+            to=200,
+            orient="horizontal",
+            command=self._on_stack_context_changed,
+        )
+        self.stack_context_scale.grid(row=0, column=1, sticky="ew")
+        self.stack_context_scale.set(40)
+        self.stack_context_value_label = ttk.Label(control_row, text="40", width=4)
+        self.stack_context_value_label.grid(row=0, column=2, sticky="e", padx=(8, 0))
+
+        self.stack_context_info_label = ttk.Label(container, text="", style="Muted.TLabel")
+        self.stack_context_info_label.grid(row=2, column=0, sticky="w", pady=(8, 8))
+
+        ttk.Label(container, text="Linhas acima", style="CardTitle.TLabel").grid(row=3, column=0, sticky="nw")
+        self.stack_above_output = scrolledtext.ScrolledText(
+            container,
+            wrap=tk.NONE,
+            font=("Consolas", 10),
+            bg="#0B0F14",
+            fg="#E6EDF3",
+            relief="flat",
+            borderwidth=0,
+            padx=10,
+            pady=10,
+            height=9,
+            state="disabled",
+        )
+        self.stack_above_output.grid(row=4, column=0, sticky="nsew", pady=(4, 10))
+
+        ttk.Label(container, text="Bloco atual", style="CardTitle.TLabel").grid(row=5, column=0, sticky="nw")
+        self.stack_current_output = scrolledtext.ScrolledText(
+            container,
+            wrap=tk.NONE,
+            font=("Consolas", 10),
+            bg="#0B0F14",
+            fg="#E6EDF3",
+            relief="flat",
+            borderwidth=0,
+            padx=10,
+            pady=10,
+            state="disabled",
+        )
+        self.stack_current_output.grid(row=6, column=0, sticky="nsew", pady=(4, 0))
+
+        ttk.Button(container, text="Fechar", command=self._close_stack_modal).grid(row=7, column=0, sticky="e", pady=(12, 0))
+        self._refresh_stack_modal_content()
+
+    def _close_stack_modal(self) -> None:
+        if self.stack_modal is not None and self.stack_modal.winfo_exists():
+            self.stack_modal.grab_release()
+            self.stack_modal.destroy()
+        self.stack_modal = None
+        self.stack_context_scale = None
+        self.stack_context_value_label = None
+        self.stack_context_info_label = None
+        self.stack_above_output = None
+        self.stack_current_output = None
+
+    def _on_stack_context_changed(self, value: str) -> None:
+        context_value = int(round(float(value)))
+        context_value = min(200, max(40, context_value))
+        self.stack_context_var.set(context_value)
+        if self.stack_context_value_label is not None:
+            self.stack_context_value_label.configure(text=str(context_value))
+        self._refresh_stack_modal_content()
+
+    def _refresh_stack_modal_content(self) -> None:
+        if self.stack_modal is None or not self.stack_modal.winfo_exists():
+            return
+        if self.stack_current_block_index < 0 or self.stack_current_block_index >= len(self.exception_blocks):
+            return
+        if self.stack_above_output is None or self.stack_current_output is None:
+            return
+
+        above_count = self.stack_context_var.get()
+        above_text = self._build_stack_above_text(self.stack_current_block_index, above_count)
+        block_text = self.exception_blocks[self.stack_current_block_index]
+        self._set_scrolled_text(self.stack_above_output, above_text)
+        self._set_scrolled_text(self.stack_current_output, block_text)
+        if self.stack_context_info_label is not None:
+            self.stack_context_info_label.configure(
+                text=f"Bloco {self.stack_current_block_index + 1} com {above_count} linhas acima."
+            )
+
+    def _set_scrolled_text(self, widget: scrolledtext.ScrolledText, text: str) -> None:
+        widget.configure(state="normal")
+        widget.delete("1.0", tk.END)
+        widget.insert(tk.END, text)
+        widget.configure(state="disabled")
+
+    def _build_stack_above_text(self, block_index: int, above_count: int) -> str:
+        if block_index < 0 or block_index >= len(self.exception_blocks):
+            return "Bloco invalido."
+        if not self.source_lines:
+            return "Nao foi possivel carregar as linhas do arquivo para exibir o contexto acima."
+
+        first_hit_line = self._extract_first_hit_line_number(self.exception_blocks[block_index])
+        if first_hit_line is None:
+            return "Nao foi possivel identificar a linha inicial do bloco."
+
+        hit_idx = max(0, first_hit_line - 1)
+        start_idx = max(0, hit_idx - above_count)
+        context_lines = self.source_lines[start_idx:hit_idx]
+        if not context_lines:
+            return "Nao existem linhas anteriores para este bloco."
+
+        numbered_lines = [
+            f"{line_no:>6}: {line.rstrip()}"
+            for line_no, line in enumerate(context_lines, start=start_idx + 1)
+        ]
+        return "\n".join(numbered_lines)
+
+    def _extract_first_hit_line_number(self, block: str) -> int | None:
+        header = block.splitlines()[0].strip() if block.splitlines() else ""
+        match = re.search(r"\d+", header)
+        if not match:
+            return None
+        return int(match.group())
 
     def open_keywords_modal(self) -> None:
         if self.keyword_modal is not None and self.keyword_modal.winfo_exists():
@@ -1110,6 +1327,7 @@ class LogAnalyzerApp:
         self.file_path = None
         self.analysis_content = ""
         self.displayed_content = ""
+        self.source_lines = []
         self.exception_blocks = []
         self.selected_block_index = -1
         self.highlights = []
