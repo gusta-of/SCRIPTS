@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -29,13 +31,17 @@ class LogAnalyzerApp:
         self.pending_keyword_reload = False
         self.applied_context = DEFAULT_CONTEXT
         self.reload_keep_index = 0
-        self.all_keywords = list(DEFAULT_KEYWORDS)
-        self.active_keywords = set(DEFAULT_KEYWORDS)
-        self.applied_keywords = tuple(DEFAULT_KEYWORDS)
+        self.keyword_store_path = self._resolve_keyword_store_path()
+        self.custom_keywords, persisted_custom_active, self.ignored_terms = self._load_keyword_preferences()
+        self.all_keywords = list(DEFAULT_KEYWORDS) + list(self.custom_keywords)
+        self.active_keywords = set(DEFAULT_KEYWORDS) | set(persisted_custom_active)
+        self.applied_keywords = tuple(self._active_keywords_in_order())
+        self.applied_ignored_terms = tuple(self.ignored_terms)
         self.keyword_modal: tk.Toplevel | None = None
         self.found_keyword_counts: dict[str, int] = {}
         self.metric_card_frames: list[ttk.Frame] = []
         self._keyword_label_wraplength = 130
+        self.custom_keyword_color = "#6EE7B7"
 
         self._configure_style()
         self._build_layout()
@@ -52,8 +58,10 @@ class LogAnalyzerApp:
         style.configure("Muted.TLabel", background="#0E1116", foreground="#9BA7B4", font=("Segoe UI", 10))
         style.configure("CardTitle.TLabel", background="#171B22", foreground="#8FA3B8", font=("Segoe UI", 9, "bold"))
         style.configure("CardValue.TLabel", background="#171B22", foreground="#E6EDF3", font=("Segoe UI", 13, "bold"))
-        style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"), padding=(12, 8))
-        style.configure("TButton", font=("Segoe UI", 10), padding=(10, 7))
+        style.configure("Primary.TButton", font=("Segoe UI", 9, "bold"), padding=(10, 6))
+        style.configure("TButton", font=("Segoe UI", 9), padding=(8, 5))
+        style.configure("ChipPrimary.TButton", font=("Segoe UI", 8, "bold"), padding=(6, 2))
+        style.configure("ChipSecondary.TButton", font=("Segoe UI", 8, "bold"), padding=(6, 2))
         style.configure("TLabel", background="#0E1116", foreground="#E6EDF3", font=("Segoe UI", 10))
 
     def _build_layout(self) -> None:
@@ -75,18 +83,19 @@ class LogAnalyzerApp:
         self.toolbar.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 10))
         for idx in range(14):
             self.toolbar.columnconfigure(idx, weight=0)
-        self.toolbar.columnconfigure(8, weight=1)
+        self.toolbar.columnconfigure(9, weight=1)
         self.toolbar.columnconfigure(12, weight=1)
 
         self.btn_open = ttk.Button(self.toolbar, text="Abrir Log", style="Primary.TButton", command=self.open_file)
         self.btn_open.grid(row=0, column=0, padx=(0, 8))
 
         ttk.Button(self.toolbar, text="Limpar", command=self.clear_view).grid(row=0, column=1, padx=(0, 8))
-        ttk.Button(self.toolbar, text="Exportar", command=self.export_results).grid(row=0, column=2, padx=(0, 14))
+        ttk.Button(self.toolbar, text="Exportar", command=self.export_results).grid(row=0, column=2, padx=(0, 8))
+        ttk.Button(self.toolbar, text="Exportar Bloco", command=self.export_current_block).grid(row=0, column=3, padx=(0, 14))
         ttk.Button(self.toolbar, text="Opcoes", command=self.open_keywords_modal).grid(row=0, column=13, padx=(8, 0))
 
         self.context_label = ttk.Label(self.toolbar, text="Contexto abaixo (linhas):")
-        self.context_label.grid(row=0, column=3, padx=(0, 6))
+        self.context_label.grid(row=0, column=4, padx=(0, 6))
         self.context_var = tk.IntVar(value=DEFAULT_CONTEXT)
         self.context_scale = ttk.Scale(
             self.toolbar,
@@ -96,10 +105,10 @@ class LogAnalyzerApp:
             length=170,
             command=self._on_context_slider_changed,
         )
-        self.context_scale.grid(row=0, column=4, padx=(0, 6))
+        self.context_scale.grid(row=0, column=5, padx=(0, 6))
         self.context_scale.set(DEFAULT_CONTEXT)
         self.context_value_label = ttk.Label(self.toolbar, text=str(DEFAULT_CONTEXT), width=3)
-        self.context_value_label.grid(row=0, column=5, padx=(0, 14))
+        self.context_value_label.grid(row=0, column=6, padx=(0, 14))
 
         self.reload_context_button = tk.Button(
             self.toolbar,
@@ -111,26 +120,26 @@ class LogAnalyzerApp:
             activeforeground="#FFFFFF",
             relief="flat",
             bd=0,
-            padx=12,
-            pady=7,
-            font=("Segoe UI", 9, "bold"),
+            padx=10,
+            pady=4,
+            font=("Segoe UI", 8, "bold"),
             cursor="hand2",
         )
-        self.reload_context_button.grid(row=0, column=6, padx=(0, 10))
+        self.reload_context_button.grid(row=0, column=7, padx=(0, 10))
         self.reload_context_button.grid_remove()
 
         self.search_label = ttk.Label(self.toolbar, text="Buscar:")
-        self.search_label.grid(row=0, column=7, padx=(0, 6))
+        self.search_label.grid(row=0, column=8, padx=(0, 6))
         self.search_var = tk.StringVar()
         self.search_entry = ttk.Entry(self.toolbar, textvariable=self.search_var, width=24)
-        self.search_entry.grid(row=0, column=8, sticky="ew", padx=(0, 8))
+        self.search_entry.grid(row=0, column=9, sticky="ew", padx=(0, 8))
 
         self.search_button = ttk.Button(self.toolbar, text="Localizar", command=self.search_keyword)
-        self.search_button.grid(row=0, column=9, padx=(0, 6))
+        self.search_button.grid(row=0, column=10, padx=(0, 6))
         self.prev_button = ttk.Button(self.toolbar, text="Anterior", width=10, command=self.previous_highlight)
-        self.prev_button.grid(row=0, column=10, padx=(0, 6))
+        self.prev_button.grid(row=0, column=11, padx=(0, 6))
         self.next_button = ttk.Button(self.toolbar, text="Proximo", width=10, command=self.next_highlight)
-        self.next_button.grid(row=0, column=11)
+        self.next_button.grid(row=0, column=12)
 
         self.status_var = tk.StringVar(value="Nenhum arquivo selecionado")
         self.status_label = ttk.Label(self.toolbar, textvariable=self.status_var, style="Muted.TLabel", anchor="e")
@@ -287,10 +296,82 @@ class LogAnalyzerApp:
     def _active_keywords_in_order(self) -> list[str]:
         return [keyword for keyword in self.all_keywords if keyword in self.active_keywords]
 
+    def _resolve_keyword_store_path(self) -> Path:
+        base_dir = Path(os.getenv("LOCALAPPDATA") or Path.home())
+        return base_dir / "AnalisadorLogs" / "keywords.json"
+
+    def _load_keyword_preferences(self) -> tuple[list[str], list[str], list[str]]:
+        default_lowers = {keyword.lower() for keyword in DEFAULT_KEYWORDS}
+        if not self.keyword_store_path.exists():
+            return [], [], []
+        try:
+            payload = json.loads(self.keyword_store_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return [], [], []
+
+        raw_custom = payload.get("custom_keywords", [])
+        raw_active_custom = payload.get("active_custom_keywords")
+        custom_keywords: list[str] = []
+        custom_lowers: set[str] = set()
+
+        for item in raw_custom:
+            if not isinstance(item, str):
+                continue
+            cleaned = item.strip()
+            lowered = cleaned.lower()
+            if not cleaned or lowered in default_lowers or lowered in custom_lowers:
+                continue
+            custom_keywords.append(cleaned)
+            custom_lowers.add(lowered)
+
+        active_custom_keywords: list[str] = []
+        if isinstance(raw_active_custom, list):
+            for item in raw_active_custom:
+                if not isinstance(item, str):
+                    continue
+                cleaned = item.strip()
+                if cleaned in custom_keywords:
+                    active_custom_keywords.append(cleaned)
+        else:
+            active_custom_keywords = list(custom_keywords)
+
+        raw_ignored_terms = payload.get("ignored_terms", [])
+        ignored_terms: list[str] = []
+        ignored_lowers: set[str] = set()
+        for item in raw_ignored_terms:
+            if not isinstance(item, str):
+                continue
+            cleaned = item.strip()
+            lowered = cleaned.lower()
+            if not cleaned or lowered in ignored_lowers:
+                continue
+            ignored_terms.append(cleaned)
+            ignored_lowers.add(lowered)
+
+        return custom_keywords, active_custom_keywords, ignored_terms
+
+    def _save_keyword_preferences(self) -> None:
+        active_custom_keywords = [keyword for keyword in self.custom_keywords if keyword in self.active_keywords]
+        payload = {
+            "custom_keywords": self.custom_keywords,
+            "active_custom_keywords": active_custom_keywords,
+            "ignored_terms": self.ignored_terms,
+        }
+        try:
+            self.keyword_store_path.parent.mkdir(parents=True, exist_ok=True)
+            self.keyword_store_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            # Keep running even if persistence storage is unavailable.
+            pass
+
     def _update_reload_state(self) -> None:
         self.pending_context_reload = self.context_var.get() != self.applied_context
         self.pending_keyword_reload = tuple(self._active_keywords_in_order()) != self.applied_keywords
-        has_pending = self.pending_context_reload or self.pending_keyword_reload
+        pending_ignored_reload = tuple(self.ignored_terms) != self.applied_ignored_terms
+        has_pending = self.pending_context_reload or self.pending_keyword_reload or pending_ignored_reload
         self._set_reload_button_visible(has_pending)
 
         if not self.file_path:
@@ -301,6 +382,8 @@ class LogAnalyzerApp:
                 reasons.append("contexto")
             if self.pending_keyword_reload:
                 reasons.append("palavras-chave")
+            if pending_ignored_reload:
+                reasons.append("desconsideradas")
             self.status_var.set(
                 f"Filtro alterado ({' + '.join(reasons)}). Clique em RECARREGAR para aplicar."
             )
@@ -398,43 +481,25 @@ class LogAnalyzerApp:
                 row,
                 text=f"{keyword} ({count})",
                 bg="#1A212B",
-                fg="#DCE7F3",
+                fg=self.custom_keyword_color if keyword in self.custom_keywords else "#DCE7F3",
                 anchor="w",
                 justify="left",
                 wraplength=self._keyword_label_wraplength,
                 font=("Segoe UI", 9, "bold"),
             ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
 
-            tk.Button(
+            ttk.Button(
                 row,
                 text="Buscar",
                 command=lambda term=keyword: self._search_from_keyword_button(term),
-                bg="#FF8E3C",
-                fg="#101214",
-                activebackground="#F2CC60",
-                activeforeground="#101214",
-                relief="flat",
-                bd=0,
-                padx=2,
-                pady=1,
-                font=("Segoe UI", 8, "bold"),
-                cursor="hand2",
+                style="ChipPrimary.TButton",
             ).grid(row=1, column=0, sticky="ew", padx=(0, 3))
 
-            tk.Button(
+            ttk.Button(
                 row,
                 text="Anterior",
                 command=lambda term=keyword: self._search_previous_from_keyword_button(term),
-                bg="#2A3342",
-                fg="#DCE7F3",
-                activebackground="#3B4658",
-                activeforeground="#FFFFFF",
-                relief="flat",
-                bd=0,
-                padx=2,
-                pady=1,
-                font=("Segoe UI", 8, "bold"),
-                cursor="hand2",
+                style="ChipSecondary.TButton",
             ).grid(row=1, column=1, sticky="ew", padx=(3, 0))
 
     def _search_from_keyword_button(self, keyword: str) -> None:
@@ -551,6 +616,7 @@ class LogAnalyzerApp:
                 path,
                 context=self.context_var.get(),
                 keywords=self._active_keywords_in_order(),
+                ignored_terms=self.ignored_terms,
             )
             self.root.after(0, lambda: self._on_analysis_success(path, result.content, list(result.blocks)))
         except Exception as exc:
@@ -564,6 +630,7 @@ class LogAnalyzerApp:
         self.matches_card.set("0")
         self.applied_context = self.context_var.get()
         self.applied_keywords = tuple(self._active_keywords_in_order())
+        self.applied_ignored_terms = tuple(self.ignored_terms)
         self.pending_context_reload = False
         self.pending_keyword_reload = False
 
@@ -617,8 +684,8 @@ class LogAnalyzerApp:
                 text=text,
                 justify="left",
                 anchor="nw",
-                width=34,
-                height=5,
+                width=32,
+                height=4,
                 wraplength=260,
                 bg="#1E2530",
                 fg="#DCE7F3",
@@ -626,10 +693,11 @@ class LogAnalyzerApp:
                 activeforeground="#FFFFFF",
                 relief="flat",
                 bd=0,
+                highlightthickness=0,
                 cursor="hand2",
                 command=lambda i=idx: self._select_exception_block(i),
-                padx=10,
-                pady=8,
+                padx=8,
+                pady=6,
             )
             btn.grid(row=0, column=idx, padx=(0, 8), sticky="nsew")
             self.block_buttons.append(btn)
@@ -689,6 +757,7 @@ class LogAnalyzerApp:
         container.columnconfigure(2, weight=0)
         container.columnconfigure(4, weight=1)
         container.rowconfigure(1, weight=1)
+        container.rowconfigure(4, weight=1)
 
         ttk.Label(
             container,
@@ -744,12 +813,44 @@ class LogAnalyzerApp:
             row=1, column=0, columnspan=3, sticky="w", pady=(6, 0)
         )
 
+        ignored_area = ttk.Frame(container)
+        ignored_area.grid(row=4, column=0, columnspan=5, sticky="nsew", pady=(14, 0))
+        ignored_area.columnconfigure(0, weight=1)
+        ignored_area.rowconfigure(1, weight=1)
+
+        ttk.Label(ignored_area, text="Palavras desconsideradas na deteccao", style="CardTitle.TLabel").grid(
+            row=0, column=0, sticky="w", pady=(0, 6)
+        )
+        self.ignored_terms_listbox = tk.Listbox(
+            ignored_area,
+            selectmode=tk.EXTENDED,
+            exportselection=False,
+            bg="#0B0F14",
+            fg="#E6EDF3",
+            selectbackground="#24507A",
+            relief="flat",
+            height=5,
+        )
+        self.ignored_terms_listbox.grid(row=1, column=0, sticky="nsew")
+
+        ignored_entry_area = ttk.Frame(ignored_area)
+        ignored_entry_area.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        ignored_entry_area.columnconfigure(0, weight=1)
+        self.new_ignored_var = tk.StringVar()
+        ignored_entry = ttk.Entry(ignored_entry_area, textvariable=self.new_ignored_var)
+        ignored_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ttk.Button(ignored_entry_area, text="Adicionar", command=self._submit_ignored_term).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(ignored_entry_area, text="Remover Selecionadas", command=self._remove_selected_ignored_terms).grid(row=0, column=2)
+        ignored_entry.bind("<Return>", lambda _evt: self._submit_ignored_term())
+
         footer = ttk.Frame(container)
-        footer.grid(row=4, column=0, columnspan=5, sticky="e", pady=(14, 0))
-        ttk.Button(footer, text="Fechar", command=self._close_keywords_modal).grid(row=0, column=0)
+        footer.grid(row=5, column=0, columnspan=5, sticky="e", pady=(14, 0))
+        ttk.Button(footer, text="Excluir Inseridas", command=self._delete_selected_custom_keywords).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(footer, text="Fechar", command=self._close_keywords_modal).grid(row=0, column=1)
 
         entry.bind("<Return>", lambda _evt: self._submit_new_keyword())
         self._refresh_keyword_modal_lists()
+        self._refresh_ignored_terms_listbox()
         entry.focus_set()
 
     def _close_keywords_modal(self) -> None:
@@ -767,8 +868,51 @@ class LogAnalyzerApp:
         for keyword in self.all_keywords:
             if keyword in self.active_keywords:
                 self.active_keywords_listbox.insert(tk.END, keyword)
+                if keyword in self.custom_keywords:
+                    self.active_keywords_listbox.itemconfig(tk.END, fg=self.custom_keyword_color)
             else:
                 self.ignored_keywords_listbox.insert(tk.END, keyword)
+                if keyword in self.custom_keywords:
+                    self.ignored_keywords_listbox.itemconfig(tk.END, fg=self.custom_keyword_color)
+
+    def _refresh_ignored_terms_listbox(self) -> None:
+        if self.keyword_modal is None or not self.keyword_modal.winfo_exists():
+            return
+        self.ignored_terms_listbox.delete(0, tk.END)
+        for term in self.ignored_terms:
+            self.ignored_terms_listbox.insert(tk.END, term)
+
+    def _submit_ignored_term(self) -> None:
+        raw_term = self.new_ignored_var.get().strip()
+        if not raw_term:
+            self.new_keyword_status.set("Informe uma palavra desconsiderada valida.")
+            return
+
+        existing = self._find_term_case_insensitive(self.ignored_terms, raw_term)
+        if existing is not None:
+            self.new_keyword_status.set(f"'{existing}' ja esta na lista de desconsideradas.")
+            self.new_ignored_var.set("")
+            return
+
+        self.ignored_terms.append(raw_term)
+        self.new_ignored_var.set("")
+        self._save_keyword_preferences()
+        self._refresh_ignored_terms_listbox()
+        self._update_reload_state()
+        self.new_keyword_status.set(f"'{raw_term}' adicionada em desconsideradas.")
+
+    def _remove_selected_ignored_terms(self) -> None:
+        selected_indexes = list(self.ignored_terms_listbox.curselection())
+        if not selected_indexes:
+            self.new_keyword_status.set("Selecione ao menos uma palavra desconsiderada para remover.")
+            return
+
+        selected_terms = [self.ignored_terms_listbox.get(i) for i in selected_indexes]
+        self.ignored_terms = [term for term in self.ignored_terms if term not in selected_terms]
+        self._save_keyword_preferences()
+        self._refresh_ignored_terms_listbox()
+        self._update_reload_state()
+        self.new_keyword_status.set(f"Removidas das desconsideradas: {', '.join(selected_terms)}.")
 
     def _move_keywords_to_ignored(self) -> None:
         selected = [self.active_keywords_listbox.get(i) for i in self.active_keywords_listbox.curselection()]
@@ -776,6 +920,7 @@ class LogAnalyzerApp:
             return
         for keyword in selected:
             self.active_keywords.discard(keyword)
+        self._save_keyword_preferences()
         self._refresh_keyword_modal_lists()
         self._update_reload_state()
 
@@ -785,6 +930,7 @@ class LogAnalyzerApp:
             return
         for keyword in selected:
             self.active_keywords.add(keyword)
+        self._save_keyword_preferences()
         self._refresh_keyword_modal_lists()
         self._update_reload_state()
 
@@ -798,20 +944,59 @@ class LogAnalyzerApp:
         if existing is None:
             self.all_keywords.append(raw_term)
             self.active_keywords.add(raw_term)
+            self.custom_keywords.append(raw_term)
+            self._save_keyword_preferences()
             self.new_keyword_status.set(f"'{raw_term}' adicionada e ativada.")
         else:
             self.active_keywords.add(existing)
+            if existing in self.custom_keywords:
+                self._save_keyword_preferences()
             self.new_keyword_status.set(f"'{existing}' ja existia e foi ativada.")
 
         self.new_keyword_var.set("")
         self._refresh_keyword_modal_lists()
         self._update_reload_state()
 
+    def _delete_selected_custom_keywords(self) -> None:
+        selected_active = [self.active_keywords_listbox.get(i) for i in self.active_keywords_listbox.curselection()]
+        selected_ignored = [self.ignored_keywords_listbox.get(i) for i in self.ignored_keywords_listbox.curselection()]
+        selected = list(dict.fromkeys(selected_active + selected_ignored))
+        if not selected:
+            self.new_keyword_status.set("Selecione ao menos uma palavra para excluir.")
+            return
+
+        removable = [keyword for keyword in selected if keyword in self.custom_keywords]
+        blocked = [keyword for keyword in selected if keyword not in self.custom_keywords]
+        if not removable:
+            self.new_keyword_status.set("Apenas palavras inseridas podem ser excluidas.")
+            return
+
+        for keyword in removable:
+            if keyword in self.custom_keywords:
+                self.custom_keywords.remove(keyword)
+            if keyword in self.active_keywords:
+                self.active_keywords.remove(keyword)
+            self.all_keywords = [item for item in self.all_keywords if item != keyword]
+
+        self._save_keyword_preferences()
+        self._refresh_keyword_modal_lists()
+        self._update_reload_state()
+
+        if blocked:
+            self.new_keyword_status.set(
+                f"Excluidas: {', '.join(removable)}. Padroes ignoradas: {', '.join(blocked)}."
+            )
+        else:
+            self.new_keyword_status.set(f"Excluidas: {', '.join(removable)}.")
+
     def _find_keyword_case_insensitive(self, target: str) -> str | None:
+        return self._find_term_case_insensitive(self.all_keywords, target)
+
+    def _find_term_case_insensitive(self, terms: list[str], target: str) -> str | None:
         target_lower = target.lower()
-        for keyword in self.all_keywords:
-            if keyword.lower() == target_lower:
-                return keyword
+        for term in terms:
+            if term.lower() == target_lower:
+                return term
         return None
 
     def _on_analysis_error(self, error_message: str) -> None:
@@ -839,6 +1024,7 @@ class LogAnalyzerApp:
         self.reload_keep_index = 0
         self.applied_context = self.context_var.get()
         self.applied_keywords = tuple(self._active_keywords_in_order())
+        self.applied_ignored_terms = tuple(self.ignored_terms)
 
         self.search_var.set("")
         self._set_output_text("")
@@ -956,6 +1142,34 @@ class LogAnalyzerApp:
             return
 
         messagebox.showinfo("Exportacao concluida", f"Arquivo salvo em:\n{output_path}")
+
+    def export_current_block(self) -> None:
+        if not self.exception_blocks or self.selected_block_index < 0 or self.selected_block_index >= len(self.exception_blocks):
+            messagebox.showwarning("Aviso", "Nenhum bloco selecionado para exportar.")
+            return
+
+        block_content = self.exception_blocks[self.selected_block_index]
+        if not block_content.strip():
+            messagebox.showwarning("Aviso", "O bloco selecionado esta vazio.")
+            return
+
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Arquivo de texto", "*.txt")],
+            title="Salvar bloco selecionado",
+        )
+        if not save_path:
+            return
+
+        output_path = Path(save_path)
+        try:
+            with output_path.open("w", encoding="utf-8", newline="\n") as out:
+                out.write(block_content)
+        except OSError as exc:
+            messagebox.showerror("Erro", f"Falha ao exportar bloco:\n{exc}")
+            return
+
+        messagebox.showinfo("Exportacao concluida", f"Bloco salvo em:\n{output_path}")
 
 
 def main() -> None:

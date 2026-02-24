@@ -57,6 +57,7 @@ def extract_exception_blocks(
     file_path: Path,
     context: int = DEFAULT_CONTEXT,
     keywords: list[str] | tuple[str, ...] | None = None,
+    ignored_terms: list[str] | tuple[str, ...] | None = None,
     pattern: re.Pattern[str] | None = None,
     separator: str = DEFAULT_SEPARATOR,
 ) -> AnalysisResult:
@@ -68,6 +69,7 @@ def extract_exception_blocks(
         lines,
         context=context,
         keywords=keywords,
+        ignored_terms=ignored_terms,
         pattern=pattern,
         separator=separator,
     )
@@ -77,16 +79,18 @@ def extract_exception_blocks_from_lines(
     lines: list[str],
     context: int = DEFAULT_CONTEXT,
     keywords: list[str] | tuple[str, ...] | None = None,
+    ignored_terms: list[str] | tuple[str, ...] | None = None,
     pattern: re.Pattern[str] | None = None,
     separator: str = DEFAULT_SEPARATOR,
 ) -> AnalysisResult:
     below_context = max(0, int(context))
     resolved_pattern = pattern if pattern is not None else build_keyword_pattern(keywords)
+    ignored_pattern = build_keyword_pattern(ignored_terms) if ignored_terms else None
     ranges: list[tuple[int, int, list[int]]] = []
     blocks: list[str] = []
 
     for idx, line in enumerate(lines):
-        if resolved_pattern.search(line):
+        if _has_effective_keyword_match(line, resolved_pattern, ignored_pattern):
             start = idx
             end = min(idx + below_context + 1, len(lines))
             if not ranges:
@@ -113,3 +117,26 @@ def extract_exception_blocks_from_lines(
         return AnalysisResult(content=DEFAULT_NO_EXCEPTION_MESSAGE, block_count=0, blocks=())
 
     return AnalysisResult(content=separator.join(blocks), block_count=len(blocks), blocks=tuple(blocks))
+
+
+def _has_effective_keyword_match(
+    line: str,
+    keyword_pattern: re.Pattern[str],
+    ignored_pattern: re.Pattern[str] | None,
+) -> bool:
+    matches = list(keyword_pattern.finditer(line))
+    if not matches:
+        return False
+    if ignored_pattern is None:
+        return True
+
+    ignored_spans = [match.span() for match in ignored_pattern.finditer(line)]
+    if not ignored_spans:
+        return True
+
+    for keyword_match in matches:
+        k_start, k_end = keyword_match.span()
+        inside_ignored = any(k_start >= i_start and k_end <= i_end for i_start, i_end in ignored_spans)
+        if not inside_ignored:
+            return True
+    return False

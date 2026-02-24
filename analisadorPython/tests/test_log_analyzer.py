@@ -85,6 +85,32 @@ class TestLogAnalyzerCore(unittest.TestCase):
         self.assertEqual(result.block_count, 0)
         self.assertEqual(result.content, DEFAULT_NO_EXCEPTION_MESSAGE)
 
+    def test_extract_exception_blocks_ignores_keyword_inside_ignored_term(self) -> None:
+        lines = ["Status ValueError apenas tecnico\n", "linha seguinte\n"]
+
+        result = extract_exception_blocks_from_lines(
+            lines,
+            context=1,
+            keywords=["Error"],
+            ignored_terms=["ValueError"],
+        )
+
+        self.assertEqual(result.block_count, 0)
+        self.assertEqual(result.content, DEFAULT_NO_EXCEPTION_MESSAGE)
+
+    def test_extract_exception_blocks_keeps_standalone_keyword_when_ignored_exists(self) -> None:
+        lines = ["ValueError interno; Error real\n", "linha seguinte\n"]
+
+        result = extract_exception_blocks_from_lines(
+            lines,
+            context=1,
+            keywords=["Error"],
+            ignored_terms=["ValueError"],
+        )
+
+        self.assertEqual(result.block_count, 1)
+        self.assertIn("Error real", result.content)
+
     def test_build_keyword_pattern_is_case_insensitive(self) -> None:
         pattern = build_keyword_pattern(["timeout"])
         self.assertIsNotNone(pattern.search("TIMEOUT at gateway"))
