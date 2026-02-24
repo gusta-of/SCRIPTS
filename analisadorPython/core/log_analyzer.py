@@ -82,15 +82,32 @@ def extract_exception_blocks_from_lines(
 ) -> AnalysisResult:
     below_context = max(0, int(context))
     resolved_pattern = pattern if pattern is not None else build_keyword_pattern(keywords)
+    ranges: list[tuple[int, int, list[int]]] = []
     blocks: list[str] = []
 
     for idx, line in enumerate(lines):
         if resolved_pattern.search(line):
             start = idx
             end = min(idx + below_context + 1, len(lines))
-            header = f"[Linha {idx + 1}]\n"
-            section = header + "".join(lines[start:end]).rstrip()
-            blocks.append(section)
+            if not ranges:
+                ranges.append((start, end, [idx]))
+                continue
+
+            prev_start, prev_end, prev_hits = ranges[-1]
+            if start < prev_end:
+                merged_end = max(prev_end, end)
+                ranges[-1] = (prev_start, merged_end, prev_hits + [idx])
+            else:
+                ranges.append((start, end, [idx]))
+
+    for start, end, hit_indexes in ranges:
+        if len(hit_indexes) == 1:
+            header = f"[Linha {hit_indexes[0] + 1}]\n"
+        else:
+            hit_lines = ", ".join(str(pos + 1) for pos in hit_indexes)
+            header = f"[Linhas {hit_lines}]\n"
+        section = header + "".join(lines[start:end]).rstrip()
+        blocks.append(section)
 
     if not blocks:
         return AnalysisResult(content=DEFAULT_NO_EXCEPTION_MESSAGE, block_count=0, blocks=())

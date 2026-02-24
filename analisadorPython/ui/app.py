@@ -13,7 +13,7 @@ class LogAnalyzerApp:
         self.root = root
         self.root.title("Analisador de Logs")
         self.root.geometry("1280x820")
-        self.root.minsize(980, 620)
+        self.root.minsize(760, 520)
 
         self.file_path: Path | None = None
         self.analysis_content = ""
@@ -22,7 +22,7 @@ class LogAnalyzerApp:
         self.block_buttons: list[tk.Button] = []
         self.selected_block_index = -1
 
-        self.highlights: list[tuple[str, str]] = []
+        self.highlights: list[tuple[int, int, int]] = []
         self.current_highlight_index = -1
         self.filters_visible = False
         self.pending_context_reload = False
@@ -33,6 +33,9 @@ class LogAnalyzerApp:
         self.active_keywords = set(DEFAULT_KEYWORDS)
         self.applied_keywords = tuple(DEFAULT_KEYWORDS)
         self.keyword_modal: tk.Toplevel | None = None
+        self.found_keyword_counts: dict[str, int] = {}
+        self.metric_card_frames: list[ttk.Frame] = []
+        self._keyword_label_wraplength = 130
 
         self._configure_style()
         self._build_layout()
@@ -68,24 +71,25 @@ class LogAnalyzerApp:
             style="Muted.TLabel",
         ).grid(row=1, column=0, sticky="w", pady=(3, 0))
 
-        toolbar = ttk.Frame(self.root)
-        toolbar.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 10))
+        self.toolbar = ttk.Frame(self.root)
+        self.toolbar.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 10))
         for idx in range(14):
-            toolbar.columnconfigure(idx, weight=0)
-        toolbar.columnconfigure(12, weight=1)
+            self.toolbar.columnconfigure(idx, weight=0)
+        self.toolbar.columnconfigure(8, weight=1)
+        self.toolbar.columnconfigure(12, weight=1)
 
-        self.btn_open = ttk.Button(toolbar, text="Abrir Log", style="Primary.TButton", command=self.open_file)
+        self.btn_open = ttk.Button(self.toolbar, text="Abrir Log", style="Primary.TButton", command=self.open_file)
         self.btn_open.grid(row=0, column=0, padx=(0, 8))
 
-        ttk.Button(toolbar, text="Limpar", command=self.clear_view).grid(row=0, column=1, padx=(0, 8))
-        ttk.Button(toolbar, text="Exportar", command=self.export_results).grid(row=0, column=2, padx=(0, 14))
-        ttk.Button(toolbar, text="Opcoes", command=self.open_keywords_modal).grid(row=0, column=13, padx=(8, 0))
+        ttk.Button(self.toolbar, text="Limpar", command=self.clear_view).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(self.toolbar, text="Exportar", command=self.export_results).grid(row=0, column=2, padx=(0, 14))
+        ttk.Button(self.toolbar, text="Opcoes", command=self.open_keywords_modal).grid(row=0, column=13, padx=(8, 0))
 
-        self.context_label = ttk.Label(toolbar, text="Contexto abaixo (linhas):")
+        self.context_label = ttk.Label(self.toolbar, text="Contexto abaixo (linhas):")
         self.context_label.grid(row=0, column=3, padx=(0, 6))
         self.context_var = tk.IntVar(value=DEFAULT_CONTEXT)
         self.context_scale = ttk.Scale(
-            toolbar,
+            self.toolbar,
             from_=20,
             to=500,
             orient="horizontal",
@@ -94,11 +98,11 @@ class LogAnalyzerApp:
         )
         self.context_scale.grid(row=0, column=4, padx=(0, 6))
         self.context_scale.set(DEFAULT_CONTEXT)
-        self.context_value_label = ttk.Label(toolbar, text=str(DEFAULT_CONTEXT), width=3)
+        self.context_value_label = ttk.Label(self.toolbar, text=str(DEFAULT_CONTEXT), width=3)
         self.context_value_label.grid(row=0, column=5, padx=(0, 14))
 
         self.reload_context_button = tk.Button(
-            toolbar,
+            self.toolbar,
             text="RECARREGAR",
             command=self._reload_current_file_with_new_context,
             bg="#FF5A3D",
@@ -115,44 +119,79 @@ class LogAnalyzerApp:
         self.reload_context_button.grid(row=0, column=6, padx=(0, 10))
         self.reload_context_button.grid_remove()
 
-        self.search_label = ttk.Label(toolbar, text="Buscar:")
+        self.search_label = ttk.Label(self.toolbar, text="Buscar:")
         self.search_label.grid(row=0, column=7, padx=(0, 6))
         self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=32)
-        self.search_entry.grid(row=0, column=8, padx=(0, 8))
+        self.search_entry = ttk.Entry(self.toolbar, textvariable=self.search_var, width=24)
+        self.search_entry.grid(row=0, column=8, sticky="ew", padx=(0, 8))
 
-        self.search_button = ttk.Button(toolbar, text="Localizar", command=self.search_keyword)
+        self.search_button = ttk.Button(self.toolbar, text="Localizar", command=self.search_keyword)
         self.search_button.grid(row=0, column=9, padx=(0, 6))
-        self.prev_button = ttk.Button(toolbar, text="Anterior", width=10, command=self.previous_highlight)
+        self.prev_button = ttk.Button(self.toolbar, text="Anterior", width=10, command=self.previous_highlight)
         self.prev_button.grid(row=0, column=10, padx=(0, 6))
-        self.next_button = ttk.Button(toolbar, text="Proximo", width=10, command=self.next_highlight)
+        self.next_button = ttk.Button(self.toolbar, text="Proximo", width=10, command=self.next_highlight)
         self.next_button.grid(row=0, column=11)
 
         self.status_var = tk.StringVar(value="Nenhum arquivo selecionado")
-        ttk.Label(toolbar, textvariable=self.status_var, style="Muted.TLabel").grid(row=0, column=12, sticky="e", padx=(12, 0))
+        self.status_label = ttk.Label(self.toolbar, textvariable=self.status_var, style="Muted.TLabel", anchor="e")
+        self.status_label.grid(row=1, column=0, columnspan=14, sticky="ew", pady=(6, 0))
 
-        body = ttk.Frame(self.root)
-        body.grid(row=2, column=0, sticky="nsew", padx=18, pady=(0, 14))
-        body.columnconfigure(0, weight=1)
-        body.rowconfigure(2, weight=1)
+        self.body = ttk.Frame(self.root)
+        self.body.grid(row=2, column=0, sticky="nsew", padx=18, pady=(0, 14))
+        self.body.columnconfigure(0, weight=1)
+        self.body.rowconfigure(2, weight=1)
 
-        cards = ttk.Frame(body)
-        cards.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        cards.columnconfigure((0, 1, 2), weight=1)
+        self.cards = ttk.Frame(self.body)
+        self.cards.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.cards.columnconfigure((0, 1, 2), weight=1)
 
-        self.file_card = self._build_metric_card(cards, "Arquivo", "-", 0)
-        self.blocks_card = self._build_metric_card(cards, "Blocos encontrados", "0", 1)
-        self.matches_card = self._build_metric_card(cards, "Ocorrencias na busca", "0", 2)
+        self.file_card = self._build_metric_card(self.cards, "Arquivo", "-", 0)
+        self.blocks_card = self._build_metric_card(self.cards, "Blocos encontrados", "0", 1)
+        self.matches_card = self._build_metric_card(self.cards, "Ocorrencias na busca", "0", 2)
 
-        self._build_exception_slider(body)
+        self._build_exception_slider(self.body)
 
-        text_container = ttk.Frame(body, style="Card.TFrame", padding=8)
-        text_container.grid(row=2, column=0, sticky="nsew")
-        text_container.columnconfigure(0, weight=1)
-        text_container.rowconfigure(0, weight=1)
+        self.text_container = ttk.Frame(self.body, style="Card.TFrame", padding=8)
+        self.text_container.grid(row=2, column=0, sticky="nsew")
+        self.text_container.columnconfigure(0, weight=0)
+        self.text_container.columnconfigure(1, weight=1)
+        self.text_container.rowconfigure(0, weight=1)
+
+        self.keyword_sidebar = tk.Frame(self.text_container, bg="#11161D", width=250, padx=8, pady=8)
+        self.keyword_sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 8))
+        self.keyword_sidebar.grid_propagate(False)
+        self.keyword_sidebar.rowconfigure(1, weight=1)
+        self.keyword_sidebar.columnconfigure(0, weight=1)
+
+        tk.Label(
+            self.keyword_sidebar,
+            text="Palavras Encontradas",
+            bg="#11161D",
+            fg="#E6EDF3",
+            font=("Segoe UI", 10, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", pady=(0, 8))
+
+        self.keyword_list_canvas = tk.Canvas(
+            self.keyword_sidebar,
+            background="#11161D",
+            highlightthickness=0,
+            borderwidth=0,
+            width=234,
+        )
+        self.keyword_list_canvas.grid(row=1, column=0, sticky="nsew")
+
+        keyword_scroll = ttk.Scrollbar(self.keyword_sidebar, orient="vertical", command=self.keyword_list_canvas.yview)
+        keyword_scroll.grid(row=1, column=1, sticky="ns")
+        self.keyword_list_canvas.configure(yscrollcommand=keyword_scroll.set)
+
+        self.keyword_list_inner = tk.Frame(self.keyword_list_canvas, bg="#11161D")
+        self.keyword_list_window = self.keyword_list_canvas.create_window((0, 0), window=self.keyword_list_inner, anchor="nw")
+        self.keyword_list_inner.bind("<Configure>", self._on_keyword_list_configure)
+        self.keyword_list_canvas.bind("<Configure>", self._on_keyword_canvas_configure)
 
         self.output = scrolledtext.ScrolledText(
-            text_container,
+            self.text_container,
             wrap=tk.WORD,
             font=("Consolas", 10),
             bg="#0B0F14",
@@ -165,15 +204,18 @@ class LogAnalyzerApp:
             pady=12,
             state="disabled",
         )
-        self.output.grid(row=0, column=0, sticky="nsew")
+        self.output.grid(row=0, column=1, sticky="nsew")
 
         self.output.tag_config("match", background="#F2CC60", foreground="#101214")
         self.output.tag_config("current", background="#FF8E3C", foreground="#101214")
+        self._refresh_found_keywords_panel()
+        self._apply_responsive_layout(self.root.winfo_width())
 
     def _build_metric_card(self, parent: ttk.Frame, title: str, value: str, column: int) -> tk.StringVar:
         frame = ttk.Frame(parent, style="Card.TFrame", padding=(14, 10))
         frame.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 8, 0))
         frame.columnconfigure(0, weight=1)
+        self.metric_card_frames.append(frame)
         ttk.Label(frame, text=title, style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         var = tk.StringVar(value=value)
         ttk.Label(frame, textvariable=var, style="CardValue.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
@@ -271,8 +313,185 @@ class LogAnalyzerApp:
     def _on_slider_canvas_configure(self, event: tk.Event) -> None:
         self.slider_canvas.itemconfigure(self.slider_window, height=event.height)
 
+    def _on_keyword_list_configure(self, _event: tk.Event) -> None:
+        self.keyword_list_canvas.configure(scrollregion=self.keyword_list_canvas.bbox("all"))
+
+    def _on_keyword_canvas_configure(self, event: tk.Event) -> None:
+        self.keyword_list_canvas.itemconfigure(self.keyword_list_window, width=event.width)
+
+    def _apply_responsive_layout(self, width: int) -> None:
+        if width < 920:
+            self.status_label.configure(anchor="w")
+            for idx, frame in enumerate(self.metric_card_frames):
+                frame.grid_configure(row=idx, column=0, padx=0, pady=(0 if idx == 0 else 8, 0))
+            self.cards.columnconfigure(0, weight=1)
+            self.cards.columnconfigure(1, weight=0)
+            self.cards.columnconfigure(2, weight=0)
+
+            self.text_container.rowconfigure(0, weight=0)
+            self.text_container.rowconfigure(1, weight=1)
+            self.text_container.columnconfigure(0, weight=1)
+            self.text_container.columnconfigure(1, weight=0)
+            self.keyword_sidebar.grid_configure(row=0, column=0, sticky="ew", padx=(0, 0), pady=(0, 8))
+            self.output.grid_configure(row=1, column=0, sticky="nsew")
+            sidebar_width = max(180, width - 80)
+            self.keyword_sidebar.configure(width=sidebar_width, height=185)
+            self._keyword_label_wraplength = max(120, sidebar_width - 140)
+        else:
+            self.status_label.configure(anchor="e")
+            for idx, frame in enumerate(self.metric_card_frames):
+                frame.grid_configure(row=0, column=idx, padx=(0 if idx == 0 else 8, 0), pady=0)
+            self.cards.columnconfigure(0, weight=1)
+            self.cards.columnconfigure(1, weight=1)
+            self.cards.columnconfigure(2, weight=1)
+
+            self.text_container.rowconfigure(0, weight=1)
+            self.text_container.rowconfigure(1, weight=0)
+            self.text_container.columnconfigure(0, weight=0)
+            self.text_container.columnconfigure(1, weight=1)
+            self.keyword_sidebar.grid_configure(row=0, column=0, sticky="nsw", padx=(0, 8), pady=(0, 0))
+            self.output.grid_configure(row=0, column=1, sticky="nsew")
+            sidebar_width = 300 if width >= 1600 else 260 if width >= 1300 else 230 if width >= 1100 else 200
+            self.keyword_sidebar.configure(width=sidebar_width, height=1)
+            self._keyword_label_wraplength = max(110, sidebar_width - 120)
+
+    def _on_root_resized(self, event: tk.Event) -> None:
+        if event.widget is not self.root:
+            return
+        self._apply_responsive_layout(event.width)
+
+    def _refresh_found_keywords_panel(self) -> None:
+        for child in self.keyword_list_inner.winfo_children():
+            child.destroy()
+
+        source_blocks = self.exception_blocks if self.exception_blocks else []
+        keyword_counts: dict[str, int] = {}
+        for keyword in self.applied_keywords:
+            total = 0
+            for block_text in source_blocks:
+                total += len(self._find_term_offsets(block_text, keyword))
+            if total > 0:
+                keyword_counts[keyword] = total
+
+        self.found_keyword_counts = keyword_counts
+        if not keyword_counts:
+            tk.Label(
+                self.keyword_list_inner,
+                text="Nenhuma palavra-chave encontrada.",
+                bg="#11161D",
+                fg="#9BA7B4",
+                justify="left",
+                anchor="w",
+                wraplength=210,
+                padx=6,
+                pady=8,
+            ).grid(row=0, column=0, sticky="ew")
+            return
+
+        for row_idx, (keyword, count) in enumerate(keyword_counts.items()):
+            row = tk.Frame(self.keyword_list_inner, bg="#1A212B", padx=6, pady=6)
+            row.grid(row=row_idx, column=0, sticky="ew", pady=(0, 6))
+            row.columnconfigure(0, weight=1)
+            row.columnconfigure(1, weight=1)
+
+            tk.Label(
+                row,
+                text=f"{keyword} ({count})",
+                bg="#1A212B",
+                fg="#DCE7F3",
+                anchor="w",
+                justify="left",
+                wraplength=self._keyword_label_wraplength,
+                font=("Segoe UI", 9, "bold"),
+            ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+
+            tk.Button(
+                row,
+                text="Buscar",
+                command=lambda term=keyword: self._search_from_keyword_button(term),
+                bg="#FF8E3C",
+                fg="#101214",
+                activebackground="#F2CC60",
+                activeforeground="#101214",
+                relief="flat",
+                bd=0,
+                padx=2,
+                pady=1,
+                font=("Segoe UI", 8, "bold"),
+                cursor="hand2",
+            ).grid(row=1, column=0, sticky="ew", padx=(0, 3))
+
+            tk.Button(
+                row,
+                text="Anterior",
+                command=lambda term=keyword: self._search_previous_from_keyword_button(term),
+                bg="#2A3342",
+                fg="#DCE7F3",
+                activebackground="#3B4658",
+                activeforeground="#FFFFFF",
+                relief="flat",
+                bd=0,
+                padx=2,
+                pady=1,
+                font=("Segoe UI", 8, "bold"),
+                cursor="hand2",
+            ).grid(row=1, column=1, sticky="ew", padx=(3, 0))
+
+    def _search_from_keyword_button(self, keyword: str) -> None:
+        normalized = keyword.strip()
+        if not normalized:
+            return
+        is_same_term = self.search_var.get().strip().lower() == normalized.lower()
+        self.search_var.set(normalized)
+        if is_same_term and self.highlights:
+            self.next_highlight()
+            return
+        self.search_keyword()
+
+    def _search_previous_from_keyword_button(self, keyword: str) -> None:
+        normalized = keyword.strip()
+        if not normalized:
+            return
+        is_same_term = self.search_var.get().strip().lower() == normalized.lower()
+        self.search_var.set(normalized)
+        if is_same_term and self.highlights:
+            self.previous_highlight()
+            return
+        self.search_keyword()
+        if self.highlights:
+            self.current_highlight_index = len(self.highlights) - 1
+            self._scroll_to_highlight(self.current_highlight_index)
+
     def _scroll_exception_cards(self, direction: int) -> None:
         self.slider_canvas.xview_scroll(3 * direction, "units")
+
+    def _scroll_slider_to_x(self, target_x: int) -> None:
+        bbox = self.slider_canvas.bbox("all")
+        if not bbox:
+            return
+        content_left, _content_top, content_right, _content_bottom = bbox
+        content_width = max(content_right - content_left, 1)
+        viewport_width = self.slider_canvas.winfo_width()
+        max_offset = max(content_width - viewport_width, 0)
+        clamped_offset = max(0, min(target_x, max_offset))
+        fraction = 0.0 if max_offset == 0 else clamped_offset / max_offset
+        self.slider_canvas.xview_moveto(fraction)
+
+    def _ensure_selected_card_visible(self, index: int) -> None:
+        if index < 0 or index >= len(self.block_buttons):
+            return
+
+        self.root.update_idletasks()
+        button = self.block_buttons[index]
+        button_left = button.winfo_x()
+        button_right = button_left + button.winfo_width()
+        visible_left = int(self.slider_canvas.canvasx(0))
+        visible_right = visible_left + self.slider_canvas.winfo_width()
+
+        if button_left < visible_left:
+            self._scroll_slider_to_x(button_left)
+        elif button_right > visible_right:
+            self._scroll_slider_to_x(button_right - self.slider_canvas.winfo_width())
 
     def _on_context_slider_changed(self, value: str) -> None:
         context_value = int(round(float(value)))
@@ -299,6 +518,7 @@ class LogAnalyzerApp:
         self.root.bind("<F3>", lambda _evt: self.next_highlight())
         self.root.bind("<Shift-F3>", lambda _evt: self.previous_highlight())
         self.root.bind("<Control-s>", lambda _evt: self.export_results())
+        self.root.bind("<Configure>", self._on_root_resized)
 
     def open_file(self) -> None:
         selected = filedialog.askopenfilename(
@@ -354,6 +574,7 @@ class LogAnalyzerApp:
         self.reload_context_button.configure(state="normal")
         self._set_filters_visible(True)
         self._update_reload_state()
+        self._refresh_found_keywords_panel()
 
         self._populate_exception_cards(blocks)
 
@@ -364,6 +585,7 @@ class LogAnalyzerApp:
             self.selected_block_index = -1
             self.displayed_content = content
             self._set_output_text(content)
+            self._refresh_found_keywords_panel()
         self.reload_keep_index = 0
 
     def _populate_exception_cards(self, blocks: list[str]) -> None:
@@ -444,9 +666,8 @@ class LogAnalyzerApp:
             else:
                 btn.configure(bg="#1E2530", fg="#DCE7F3", activebackground="#2A3342", activeforeground="#FFFFFF")
 
-        self.highlights = []
-        self.current_highlight_index = -1
-        self.matches_card.set("0")
+        self._ensure_selected_card_visible(index)
+        self._render_current_search_highlights()
 
     def open_keywords_modal(self) -> None:
         if self.keyword_modal is not None and self.keyword_modal.winfo_exists():
@@ -622,6 +843,7 @@ class LogAnalyzerApp:
         self.search_var.set("")
         self._set_output_text("")
         self._populate_exception_cards([])
+        self._refresh_found_keywords_panel()
         self._set_filters_visible(False)
 
         self.file_card.set("-")
@@ -631,35 +853,63 @@ class LogAnalyzerApp:
 
     def search_keyword(self) -> None:
         term = self.search_var.get().strip()
-        self._set_output_text(self.displayed_content)
-
-        self.output.configure(state="normal")
-        self.output.tag_remove("match", "1.0", tk.END)
-        self.output.tag_remove("current", "1.0", tk.END)
-
         self.highlights = []
         self.current_highlight_index = -1
 
         if not term:
             self.matches_card.set("0")
-            self.output.configure(state="disabled")
+            self._render_current_search_highlights()
             return
 
-        cursor = "1.0"
-        while True:
-            found = self.output.search(term, cursor, tk.END, nocase=True)
-            if not found:
-                break
-            end = f"{found}+{len(term)}c"
-            self.output.tag_add("match", found, end)
-            self.highlights.append((found, end))
-            cursor = end
+        source_blocks = self.exception_blocks if self.exception_blocks else [self.displayed_content]
+        for block_index, block_text in enumerate(source_blocks):
+            for start, end in self._find_term_offsets(block_text, term):
+                self.highlights.append((block_index, start, end))
 
         self.matches_card.set(str(len(self.highlights)))
 
         if self.highlights:
             self.current_highlight_index = 0
             self._scroll_to_highlight(0)
+        else:
+            self._render_current_search_highlights()
+
+    def _find_term_offsets(self, content: str, term: str) -> list[tuple[int, int]]:
+        matches: list[tuple[int, int]] = []
+        if not term:
+            return matches
+
+        content_lower = content.lower()
+        term_lower = term.lower()
+        start = 0
+        while True:
+            found = content_lower.find(term_lower, start)
+            if found == -1:
+                break
+            end = found + len(term)
+            matches.append((found, end))
+            start = end
+        return matches
+
+    def _render_current_search_highlights(self) -> None:
+        self.output.configure(state="normal")
+        self.output.tag_remove("match", "1.0", tk.END)
+        self.output.tag_remove("current", "1.0", tk.END)
+
+        if not self.highlights:
+            self.output.configure(state="disabled")
+            return
+
+        active_block = self.selected_block_index if self.exception_blocks else 0
+        for idx, (block_index, start, end) in enumerate(self.highlights):
+            if block_index != active_block:
+                continue
+            start_idx = f"1.0+{start}c"
+            end_idx = f"1.0+{end}c"
+            self.output.tag_add("match", start_idx, end_idx)
+            if idx == self.current_highlight_index:
+                self.output.tag_add("current", start_idx, end_idx)
+                self.output.see(start_idx)
 
         self.output.configure(state="disabled")
 
@@ -667,10 +917,10 @@ class LogAnalyzerApp:
         if not self.highlights:
             return
 
-        start, end = self.highlights[index]
-        self.output.tag_remove("current", "1.0", tk.END)
-        self.output.tag_add("current", start, end)
-        self.output.see(start)
+        block_index, _start, _end = self.highlights[index]
+        if self.exception_blocks and block_index != self.selected_block_index:
+            self._select_exception_block(block_index)
+        self._render_current_search_highlights()
 
     def next_highlight(self) -> None:
         if not self.highlights:

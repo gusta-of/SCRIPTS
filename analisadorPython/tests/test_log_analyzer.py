@@ -41,6 +41,25 @@ class TestLogAnalyzerCore(unittest.TestCase):
         self.assertEqual(block_lines[-1], "line 23")
         self.assertEqual(len(block_lines), 4)
 
+    def test_extract_exception_blocks_merges_overlapping_ranges(self) -> None:
+        lines = [
+            "line 1\n",
+            "ValueError: first\n",
+            "line 3\n",
+            "TypeError: second\n",
+            "line 5\n",
+            "line 6\n",
+        ]
+
+        result = extract_exception_blocks_from_lines(lines, context=2)
+
+        self.assertEqual(result.block_count, 1)
+        self.assertEqual(len(result.blocks), 1)
+        block_lines = result.blocks[0].splitlines()
+        self.assertEqual(block_lines[0], "[Linhas 2, 4]")
+        self.assertEqual(block_lines[1], "ValueError: first")
+        self.assertEqual(block_lines[-1], "line 6")
+
     def test_extract_exception_blocks_from_lines_without_matches(self) -> None:
         lines = ["ok\n", "still ok\n"]
 
