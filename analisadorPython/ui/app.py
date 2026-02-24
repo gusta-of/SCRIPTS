@@ -58,10 +58,10 @@ class LogAnalyzerApp:
         style.configure("Muted.TLabel", background="#0E1116", foreground="#9BA7B4", font=("Segoe UI", 10))
         style.configure("CardTitle.TLabel", background="#171B22", foreground="#8FA3B8", font=("Segoe UI", 9, "bold"))
         style.configure("CardValue.TLabel", background="#171B22", foreground="#E6EDF3", font=("Segoe UI", 13, "bold"))
-        style.configure("Primary.TButton", font=("Segoe UI", 9, "bold"), padding=(10, 6))
-        style.configure("TButton", font=("Segoe UI", 9), padding=(8, 5))
-        style.configure("ChipPrimary.TButton", font=("Segoe UI", 8, "bold"), padding=(6, 2))
-        style.configure("ChipSecondary.TButton", font=("Segoe UI", 8, "bold"), padding=(6, 2))
+        style.configure("Primary.TButton", font=("Segoe UI", 9, "bold"), padding=(9, 4))
+        style.configure("TButton", font=("Segoe UI", 9), padding=(7, 3))
+        style.configure("ChipPrimary.TButton", font=("Segoe UI", 8, "bold"), padding=(5, 1))
+        style.configure("ChipSecondary.TButton", font=("Segoe UI", 8, "bold"), padding=(5, 1))
         style.configure("TLabel", background="#0E1116", foreground="#E6EDF3", font=("Segoe UI", 10))
 
     def _build_layout(self) -> None:
@@ -120,8 +120,8 @@ class LogAnalyzerApp:
             activeforeground="#FFFFFF",
             relief="flat",
             bd=0,
-            padx=10,
-            pady=4,
+            padx=8,
+            pady=2,
             font=("Segoe UI", 8, "bold"),
             cursor="hand2",
         )
@@ -685,7 +685,7 @@ class LogAnalyzerApp:
                 justify="left",
                 anchor="nw",
                 width=32,
-                height=4,
+                height=3,
                 wraplength=260,
                 bg="#1E2530",
                 fg="#DCE7F3",
@@ -697,7 +697,7 @@ class LogAnalyzerApp:
                 cursor="hand2",
                 command=lambda i=idx: self._select_exception_block(i),
                 padx=8,
-                pady=6,
+                pady=4,
             )
             btn.grid(row=0, column=idx, padx=(0, 8), sticky="nsew")
             self.block_buttons.append(btn)
@@ -744,32 +744,43 @@ class LogAnalyzerApp:
 
         modal = tk.Toplevel(self.root)
         modal.title("Opcoes de Palavras-chave")
-        modal.geometry("760x480")
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        max_usable_width = max(420, screen_width - 40)
+        modal_min_width = min(max_usable_width, max(760, int(screen_width * 0.7)))
+        modal_width = min(screen_width - 40, modal_min_width)
+        modal_height = min(screen_height - 80, 560)
+        pos_x = max(0, (screen_width - modal_width) // 2)
+        pos_y = max(0, (screen_height - modal_height) // 2)
+        modal.minsize(modal_min_width, 480)
+        modal.geometry(f"{modal_width}x{modal_height}+{pos_x}+{pos_y}")
         modal.configure(bg="#11161D")
         modal.transient(self.root)
         modal.grab_set()
         modal.protocol("WM_DELETE_WINDOW", self._close_keywords_modal)
         self.keyword_modal = modal
 
-        container = ttk.Frame(modal, padding=14)
-        container.pack(fill="both", expand=True)
-        container.columnconfigure(0, weight=1)
-        container.columnconfigure(2, weight=0)
-        container.columnconfigure(4, weight=1)
-        container.rowconfigure(1, weight=1)
-        container.rowconfigure(4, weight=1)
+        self.keyword_modal_container = ttk.Frame(modal, padding=14)
+        self.keyword_modal_container.pack(fill="both", expand=True)
+        self.keyword_modal_container.columnconfigure(0, weight=1)
+        self.keyword_modal_container.columnconfigure(2, weight=0)
+        self.keyword_modal_container.columnconfigure(4, weight=1)
+        self.keyword_modal_container.rowconfigure(2, weight=1)
+        self.keyword_modal_container.rowconfigure(4, weight=1)
 
         ttk.Label(
-            container,
+            self.keyword_modal_container,
             text="Palavras-chave para deteccao de blocos no log",
             style="Header.TLabel",
         ).grid(row=0, column=0, columnspan=5, sticky="w", pady=(0, 10))
 
-        ttk.Label(container, text="Ativas", style="CardTitle.TLabel").grid(row=1, column=0, sticky="w")
-        ttk.Label(container, text="Ignoradas", style="CardTitle.TLabel").grid(row=1, column=4, sticky="w")
+        self.active_label = ttk.Label(self.keyword_modal_container, text="Ativas", style="CardTitle.TLabel")
+        self.active_label.grid(row=1, column=0, sticky="w")
+        self.ignored_label = ttk.Label(self.keyword_modal_container, text="Ignoradas", style="CardTitle.TLabel")
+        self.ignored_label.grid(row=1, column=4, sticky="w")
 
         self.active_keywords_listbox = tk.Listbox(
-            container,
+            self.keyword_modal_container,
             selectmode=tk.EXTENDED,
             exportselection=False,
             bg="#0B0F14",
@@ -782,7 +793,7 @@ class LogAnalyzerApp:
         self.active_keywords_listbox.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
 
         self.ignored_keywords_listbox = tk.Listbox(
-            container,
+            self.keyword_modal_container,
             selectmode=tk.EXTENDED,
             exportselection=False,
             bg="#0B0F14",
@@ -794,35 +805,37 @@ class LogAnalyzerApp:
         )
         self.ignored_keywords_listbox.grid(row=2, column=4, sticky="nsew", padx=(8, 0))
 
-        transfer = ttk.Frame(container)
-        transfer.grid(row=2, column=2, padx=8)
-        ttk.Button(transfer, text="Ignorar >>", command=self._move_keywords_to_ignored).grid(row=0, column=0, pady=(0, 8))
-        ttk.Button(transfer, text="<< Ativar", command=self._move_keywords_to_active).grid(row=1, column=0)
+        self.transfer_frame = ttk.Frame(self.keyword_modal_container)
+        self.transfer_frame.grid(row=2, column=2, padx=8)
+        self.transfer_to_ignored_button = ttk.Button(self.transfer_frame, text="Ignorar >>", command=self._move_keywords_to_ignored)
+        self.transfer_to_ignored_button.grid(row=0, column=0, pady=(0, 8))
+        self.transfer_to_active_button = ttk.Button(self.transfer_frame, text="<< Ativar", command=self._move_keywords_to_active)
+        self.transfer_to_active_button.grid(row=1, column=0)
 
-        add_area = ttk.Frame(container)
-        add_area.grid(row=3, column=0, columnspan=5, sticky="ew", pady=(14, 0))
-        add_area.columnconfigure(1, weight=1)
+        self.add_area = ttk.Frame(self.keyword_modal_container)
+        self.add_area.grid(row=3, column=0, columnspan=5, sticky="ew", pady=(14, 0))
+        self.add_area.columnconfigure(1, weight=1)
 
-        ttk.Label(add_area, text="Adicionar palavra-chave:").grid(row=0, column=0, padx=(0, 8))
+        ttk.Label(self.add_area, text="Adicionar palavra-chave:").grid(row=0, column=0, padx=(0, 8))
         self.new_keyword_var = tk.StringVar()
-        entry = ttk.Entry(add_area, textvariable=self.new_keyword_var)
+        entry = ttk.Entry(self.add_area, textvariable=self.new_keyword_var)
         entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
-        ttk.Button(add_area, text="Adicionar", command=self._submit_new_keyword).grid(row=0, column=2)
+        ttk.Button(self.add_area, text="Adicionar", command=self._submit_new_keyword).grid(row=0, column=2)
         self.new_keyword_status = tk.StringVar(value="")
-        ttk.Label(add_area, textvariable=self.new_keyword_status, style="Muted.TLabel").grid(
+        ttk.Label(self.add_area, textvariable=self.new_keyword_status, style="Muted.TLabel").grid(
             row=1, column=0, columnspan=3, sticky="w", pady=(6, 0)
         )
 
-        ignored_area = ttk.Frame(container)
-        ignored_area.grid(row=4, column=0, columnspan=5, sticky="nsew", pady=(14, 0))
-        ignored_area.columnconfigure(0, weight=1)
-        ignored_area.rowconfigure(1, weight=1)
+        self.ignored_area = ttk.Frame(self.keyword_modal_container)
+        self.ignored_area.grid(row=4, column=0, columnspan=5, sticky="nsew", pady=(14, 0))
+        self.ignored_area.columnconfigure(0, weight=1)
+        self.ignored_area.rowconfigure(1, weight=1)
 
-        ttk.Label(ignored_area, text="Palavras desconsideradas na deteccao", style="CardTitle.TLabel").grid(
+        ttk.Label(self.ignored_area, text="Palavras desconsideradas na deteccao", style="CardTitle.TLabel").grid(
             row=0, column=0, sticky="w", pady=(0, 6)
         )
         self.ignored_terms_listbox = tk.Listbox(
-            ignored_area,
+            self.ignored_area,
             selectmode=tk.EXTENDED,
             exportselection=False,
             bg="#0B0F14",
@@ -833,24 +846,26 @@ class LogAnalyzerApp:
         )
         self.ignored_terms_listbox.grid(row=1, column=0, sticky="nsew")
 
-        ignored_entry_area = ttk.Frame(ignored_area)
-        ignored_entry_area.grid(row=2, column=0, sticky="ew", pady=(8, 0))
-        ignored_entry_area.columnconfigure(0, weight=1)
+        self.ignored_entry_area = ttk.Frame(self.ignored_area)
+        self.ignored_entry_area.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        self.ignored_entry_area.columnconfigure(0, weight=1)
         self.new_ignored_var = tk.StringVar()
-        ignored_entry = ttk.Entry(ignored_entry_area, textvariable=self.new_ignored_var)
+        ignored_entry = ttk.Entry(self.ignored_entry_area, textvariable=self.new_ignored_var)
         ignored_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        ttk.Button(ignored_entry_area, text="Adicionar", command=self._submit_ignored_term).grid(row=0, column=1, padx=(0, 8))
-        ttk.Button(ignored_entry_area, text="Remover Selecionadas", command=self._remove_selected_ignored_terms).grid(row=0, column=2)
+        ttk.Button(self.ignored_entry_area, text="Adicionar", command=self._submit_ignored_term).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(self.ignored_entry_area, text="Remover Selecionadas", command=self._remove_selected_ignored_terms).grid(row=0, column=2)
         ignored_entry.bind("<Return>", lambda _evt: self._submit_ignored_term())
 
-        footer = ttk.Frame(container)
-        footer.grid(row=5, column=0, columnspan=5, sticky="e", pady=(14, 0))
-        ttk.Button(footer, text="Excluir Inseridas", command=self._delete_selected_custom_keywords).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(footer, text="Fechar", command=self._close_keywords_modal).grid(row=0, column=1)
+        self.keyword_footer = ttk.Frame(self.keyword_modal_container)
+        self.keyword_footer.grid(row=5, column=0, columnspan=5, sticky="e", pady=(14, 0))
+        ttk.Button(self.keyword_footer, text="Excluir Inseridas", command=self._delete_selected_custom_keywords).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(self.keyword_footer, text="Fechar", command=self._close_keywords_modal).grid(row=0, column=1)
 
         entry.bind("<Return>", lambda _evt: self._submit_new_keyword())
         self._refresh_keyword_modal_lists()
         self._refresh_ignored_terms_listbox()
+        self._apply_keywords_modal_layout(modal.winfo_width())
+        modal.bind("<Configure>", self._on_keywords_modal_resized)
         entry.focus_set()
 
     def _close_keywords_modal(self) -> None:
@@ -858,6 +873,60 @@ class LogAnalyzerApp:
             self.keyword_modal.grab_release()
             self.keyword_modal.destroy()
         self.keyword_modal = None
+
+    def _apply_keywords_modal_layout(self, width: int) -> None:
+        if self.keyword_modal is None or not self.keyword_modal.winfo_exists():
+            return
+
+        if width < 900:
+            self.keyword_modal_container.columnconfigure(0, weight=1)
+            self.keyword_modal_container.columnconfigure(2, weight=0)
+            self.keyword_modal_container.columnconfigure(4, weight=0)
+            self.keyword_modal_container.rowconfigure(2, weight=1)
+            self.keyword_modal_container.rowconfigure(5, weight=1)
+
+            self.active_label.grid_configure(row=1, column=0, sticky="w", pady=(0, 4))
+            self.active_keywords_listbox.grid_configure(row=2, column=0, columnspan=1, sticky="nsew", padx=0)
+
+            self.transfer_frame.grid_configure(row=3, column=0, padx=0, pady=(8, 8), sticky="ew")
+            self.transfer_frame.columnconfigure(0, weight=1)
+            self.transfer_frame.columnconfigure(1, weight=1)
+            self.transfer_to_ignored_button.grid_configure(row=0, column=0, pady=0, padx=(0, 6), sticky="ew")
+            self.transfer_to_active_button.grid_configure(row=0, column=1, pady=0, padx=(6, 0), sticky="ew")
+
+            self.ignored_label.grid_configure(row=4, column=0, sticky="w", pady=(0, 4))
+            self.ignored_keywords_listbox.grid_configure(row=5, column=0, columnspan=1, sticky="nsew", padx=0)
+
+            self.add_area.grid_configure(row=6, column=0, columnspan=1, sticky="ew", pady=(12, 0))
+            self.ignored_area.grid_configure(row=7, column=0, columnspan=1, sticky="nsew", pady=(12, 0))
+            self.keyword_footer.grid_configure(row=8, column=0, columnspan=1, sticky="ew", pady=(12, 0))
+        else:
+            self.keyword_modal_container.columnconfigure(0, weight=1)
+            self.keyword_modal_container.columnconfigure(2, weight=0)
+            self.keyword_modal_container.columnconfigure(4, weight=1)
+            self.keyword_modal_container.rowconfigure(2, weight=1)
+            self.keyword_modal_container.rowconfigure(5, weight=0)
+
+            self.active_label.grid_configure(row=1, column=0, sticky="w", pady=0)
+            self.active_keywords_listbox.grid_configure(row=2, column=0, columnspan=1, sticky="nsew", padx=(0, 8))
+
+            self.transfer_frame.grid_configure(row=2, column=2, padx=8, pady=0, sticky="ns")
+            self.transfer_frame.columnconfigure(0, weight=1)
+            self.transfer_frame.columnconfigure(1, weight=0)
+            self.transfer_to_ignored_button.grid_configure(row=0, column=0, pady=(0, 8), padx=0, sticky="ew")
+            self.transfer_to_active_button.grid_configure(row=1, column=0, pady=0, padx=0, sticky="ew")
+
+            self.ignored_label.grid_configure(row=1, column=4, sticky="w", pady=0)
+            self.ignored_keywords_listbox.grid_configure(row=2, column=4, columnspan=1, sticky="nsew", padx=(8, 0))
+
+            self.add_area.grid_configure(row=3, column=0, columnspan=5, sticky="ew", pady=(14, 0))
+            self.ignored_area.grid_configure(row=4, column=0, columnspan=5, sticky="nsew", pady=(14, 0))
+            self.keyword_footer.grid_configure(row=5, column=0, columnspan=5, sticky="e", pady=(14, 0))
+
+    def _on_keywords_modal_resized(self, event: tk.Event) -> None:
+        if self.keyword_modal is None or event.widget is not self.keyword_modal:
+            return
+        self._apply_keywords_modal_layout(event.width)
 
     def _refresh_keyword_modal_lists(self) -> None:
         if self.keyword_modal is None or not self.keyword_modal.winfo_exists():
@@ -961,13 +1030,37 @@ class LogAnalyzerApp:
         selected_active = [self.active_keywords_listbox.get(i) for i in self.active_keywords_listbox.curselection()]
         selected_ignored = [self.ignored_keywords_listbox.get(i) for i in self.ignored_keywords_listbox.curselection()]
         selected = list(dict.fromkeys(selected_active + selected_ignored))
+        selected_ignored_terms = [self.ignored_terms_listbox.get(i) for i in self.ignored_terms_listbox.curselection()]
+
+        removed_ignored_terms: list[str] = []
+        for term in selected_ignored_terms:
+            if term in self.ignored_terms:
+                self.ignored_terms.remove(term)
+                removed_ignored_terms.append(term)
+
         if not selected:
+            if removed_ignored_terms:
+                self._save_keyword_preferences()
+                self._refresh_ignored_terms_listbox()
+                self._update_reload_state()
+                self.new_keyword_status.set(
+                    f"Removidas desconsideradas: {', '.join(removed_ignored_terms)}."
+                )
+                return
             self.new_keyword_status.set("Selecione ao menos uma palavra para excluir.")
             return
 
         removable = [keyword for keyword in selected if keyword in self.custom_keywords]
         blocked = [keyword for keyword in selected if keyword not in self.custom_keywords]
         if not removable:
+            if removed_ignored_terms:
+                self._save_keyword_preferences()
+                self._refresh_ignored_terms_listbox()
+                self._update_reload_state()
+                self.new_keyword_status.set(
+                    f"Removidas desconsideradas: {', '.join(removed_ignored_terms)}."
+                )
+                return
             self.new_keyword_status.set("Apenas palavras inseridas podem ser excluidas.")
             return
 
@@ -980,14 +1073,16 @@ class LogAnalyzerApp:
 
         self._save_keyword_preferences()
         self._refresh_keyword_modal_lists()
+        self._refresh_ignored_terms_listbox()
         self._update_reload_state()
 
         if blocked:
-            self.new_keyword_status.set(
-                f"Excluidas: {', '.join(removable)}. Padroes ignoradas: {', '.join(blocked)}."
-            )
+            parts = [f"Excluidas: {', '.join(removable)}.", f"Padroes ignoradas: {', '.join(blocked)}."]
         else:
-            self.new_keyword_status.set(f"Excluidas: {', '.join(removable)}.")
+            parts = [f"Excluidas: {', '.join(removable)}."]
+        if removed_ignored_terms:
+            parts.append(f"Desconsideradas removidas: {', '.join(removed_ignored_terms)}.")
+        self.new_keyword_status.set(" ".join(parts))
 
     def _find_keyword_case_insensitive(self, target: str) -> str | None:
         return self._find_term_case_insensitive(self.all_keywords, target)
@@ -1067,15 +1162,40 @@ class LogAnalyzerApp:
 
         content_lower = content.lower()
         term_lower = term.lower()
+        ignored_spans = self._find_ignored_spans(content_lower)
         start = 0
         while True:
             found = content_lower.find(term_lower, start)
             if found == -1:
                 break
             end = found + len(term)
-            matches.append((found, end))
+            if not self._span_inside_any_ignored(found, end, ignored_spans):
+                matches.append((found, end))
             start = end
         return matches
+
+    def _find_ignored_spans(self, content_lower: str) -> list[tuple[int, int]]:
+        spans: list[tuple[int, int]] = []
+        if not self.ignored_terms:
+            return spans
+        for ignored in self.ignored_terms:
+            ignored_clean = ignored.strip().lower()
+            if not ignored_clean:
+                continue
+            start = 0
+            while True:
+                found = content_lower.find(ignored_clean, start)
+                if found == -1:
+                    break
+                spans.append((found, found + len(ignored_clean)))
+                start = found + len(ignored_clean)
+        return spans
+
+    def _span_inside_any_ignored(self, start: int, end: int, ignored_spans: list[tuple[int, int]]) -> bool:
+        for ignored_start, ignored_end in ignored_spans:
+            if start >= ignored_start and end <= ignored_end:
+                return True
+        return False
 
     def _render_current_search_highlights(self) -> None:
         self.output.configure(state="normal")
