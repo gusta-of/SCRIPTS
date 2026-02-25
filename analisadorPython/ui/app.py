@@ -635,8 +635,9 @@ class LogAnalyzerApp:
 
         self.root.update_idletasks()
         button = self.block_buttons[index]
-        button_left = button.winfo_x()
-        button_right = button_left + button.winfo_width()
+        card_container = button.master
+        button_left = card_container.winfo_x()
+        button_right = button_left + card_container.winfo_width()
         visible_left = int(self.slider_canvas.canvasx(0))
         visible_right = visible_left + self.slider_canvas.winfo_width()
 
