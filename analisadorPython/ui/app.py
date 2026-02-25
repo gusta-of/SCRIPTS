@@ -5,10 +5,18 @@ import os
 import re
 import threading
 import tkinter as tk
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from core import DEFAULT_CONTEXT, DEFAULT_KEYWORDS, MAX_FILE_SIZE_MB, extract_exception_blocks_from_lines, validate_input_path
+
+
+@dataclass(frozen=True)
+class BlockMetadata:
+    file_label: str | None
+    first_hit_line: int | None
+    body_lines: list[str]
 
 
 class LogAnalyzerApp:
@@ -18,11 +26,14 @@ class LogAnalyzerApp:
         self.root.geometry("1280x820")
         self.root.minsize(760, 520)
 
-        self.file_path: Path | None = None
+        self.file_paths: list[Path] = []
         self.analysis_content = ""
         self.displayed_content = ""
         self.source_lines: list[str] = []
+        self.all_source_lines: list[str] = []
         self.exception_blocks: list[str] = []
+        self.block_sources: list[list[str]] = []
+        self.block_source_paths: list[Path] = []
         self.block_buttons: list[tk.Button] = []
         self.selected_block_index = -1
 
@@ -93,18 +104,25 @@ class LogAnalyzerApp:
 
         self.toolbar = ttk.Frame(self.root)
         self.toolbar.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 10))
-        for idx in range(14):
+        for idx in range(15):
             self.toolbar.columnconfigure(idx, weight=0)
         self.toolbar.columnconfigure(9, weight=1)
         self.toolbar.columnconfigure(12, weight=1)
 
-        self.btn_open = ttk.Button(self.toolbar, text="Abrir Log", style="Primary.TButton", command=self.open_file)
+        self.btn_open = ttk.Button(self.toolbar, text="Abrir Logs", style="Primary.TButton", command=self.open_file)
         self.btn_open.grid(row=0, column=0, padx=(0, 8))
 
         ttk.Button(self.toolbar, text="Limpar", command=self.clear_view).grid(row=0, column=1, padx=(0, 8))
         ttk.Button(self.toolbar, text="Exportar", command=self.export_results).grid(row=0, column=2, padx=(0, 8))
         ttk.Button(self.toolbar, text="Exportar Bloco", command=self.export_current_block).grid(row=0, column=3, padx=(0, 14))
         ttk.Button(self.toolbar, text="Opcoes", command=self.open_keywords_modal).grid(row=0, column=13, padx=(8, 0))
+        self.loading_frame = ttk.Frame(self.toolbar)
+        self.loading_frame.grid(row=0, column=14, padx=(10, 0))
+        self.loading_label = ttk.Label(self.loading_frame, text="Carregando...", style="Muted.TLabel")
+        self.loading_label.grid(row=0, column=0, padx=(0, 6))
+        self.loading_bar = ttk.Progressbar(self.loading_frame, orient="horizontal", mode="indeterminate", length=120)
+        self.loading_bar.grid(row=0, column=1)
+        self.loading_frame.grid_remove()
 
         self.context_label = ttk.Label(self.toolbar, text="Contexto abaixo (linhas):")
         self.context_label.grid(row=0, column=4, padx=(0, 6))
@@ -155,7 +173,7 @@ class LogAnalyzerApp:
 
         self.status_var = tk.StringVar(value="Nenhum arquivo selecionado")
         self.status_label = ttk.Label(self.toolbar, textvariable=self.status_var, style="Muted.TLabel", anchor="e")
-        self.status_label.grid(row=1, column=0, columnspan=14, sticky="ew", pady=(6, 0))
+        self.status_label.grid(row=1, column=0, columnspan=15, sticky="ew", pady=(6, 0))
 
         self.body = ttk.Frame(self.root)
         self.body.grid(row=2, column=0, sticky="nsew", padx=18, pady=(0, 14))
@@ -172,8 +190,18 @@ class LogAnalyzerApp:
 
         self._build_exception_slider(self.body)
 
-        self.text_container = ttk.Frame(self.body, style="Card.TFrame", padding=8)
-        self.text_container.grid(row=2, column=0, sticky="nsew")
+        self.content_notebook = ttk.Notebook(self.body)
+        self.content_notebook.grid(row=2, column=0, sticky="nsew")
+        self.analysis_tab = ttk.Frame(self.content_notebook, style="TFrame")
+        self.report_tab = ttk.Frame(self.content_notebook, style="TFrame")
+        self.content_notebook.add(self.analysis_tab, text="Analise")
+        self.content_notebook.add(self.report_tab, text="Relatorio de Severidade")
+
+        self.analysis_tab.columnconfigure(0, weight=1)
+        self.analysis_tab.rowconfigure(0, weight=1)
+
+        self.text_container = ttk.Frame(self.analysis_tab, style="Card.TFrame", padding=8)
+        self.text_container.grid(row=0, column=0, sticky="nsew")
         self.text_container.columnconfigure(0, weight=0)
         self.text_container.columnconfigure(1, weight=1)
         self.text_container.rowconfigure(0, weight=1)
@@ -229,8 +257,53 @@ class LogAnalyzerApp:
 
         self.output.tag_config("match", background="#F2CC60", foreground="#101214")
         self.output.tag_config("current", background="#FF8E3C", foreground="#101214")
+
+        self.report_tab.columnconfigure(0, weight=1)
+        self.report_tab.rowconfigure(0, weight=1)
+        self.report_notebook = ttk.Notebook(self.report_tab)
+        self.report_notebook.grid(row=0, column=0, sticky="nsew")
+        self.report_outputs: dict[str, scrolledtext.ScrolledText] = {}
+        for severity in ("Exception", "Error", "Info"):
+            severity_tab = ttk.Frame(self.report_notebook, style="TFrame")
+            severity_tab.columnconfigure(0, weight=1)
+            severity_tab.rowconfigure(0, weight=1)
+            output = scrolledtext.ScrolledText(
+                severity_tab,
+                wrap=tk.WORD,
+                font=("Consolas", 10),
+                bg="#0B0F14",
+                fg="#E6EDF3",
+                insertbackground="#E6EDF3",
+                relief="flat",
+                borderwidth=0,
+                padx=14,
+                pady=12,
+                state="disabled",
+            )
+            output.grid(row=0, column=0, sticky="nsew")
+            self.report_notebook.add(severity_tab, text=severity)
+            self.report_outputs[severity] = output
+
         self._refresh_found_keywords_panel()
+        self._refresh_severity_report()
         self._apply_responsive_layout(self.root.winfo_width())
+
+    def _set_loading(self, loading: bool, status_message: str | None = None) -> None:
+        if loading:
+            self.loading_frame.grid()
+            self.loading_bar.start(10)
+            self.btn_open.configure(state="disabled")
+            self.reload_context_button.configure(state="disabled")
+            if status_message is not None:
+                self.status_var.set(status_message)
+            return
+
+        self.loading_bar.stop()
+        self.loading_frame.grid_remove()
+        self.btn_open.configure(state="normal")
+        self.reload_context_button.configure(state="normal")
+        if status_message is not None:
+            self.status_var.set(status_message)
 
     def _build_metric_card(self, parent: ttk.Frame, title: str, value: str, column: int) -> tk.StringVar:
         frame = ttk.Frame(parent, style="Card.TFrame", padding=(14, 10))
@@ -386,7 +459,7 @@ class LogAnalyzerApp:
         has_pending = self.pending_context_reload or self.pending_keyword_reload or pending_ignored_reload
         self._set_reload_button_visible(has_pending)
 
-        if not self.file_path:
+        if not self.file_paths:
             return
         if has_pending:
             reasons = []
@@ -400,7 +473,7 @@ class LogAnalyzerApp:
                 f"Filtro alterado ({' + '.join(reasons)}). Clique em RECARREGAR para aplicar."
             )
         else:
-            self.status_var.set(f"Arquivo: {self.file_path}")
+            self.status_var.set(f"Arquivos analisados: {len(self.file_paths)}")
 
     def _on_slider_content_configure(self, _event: tk.Event) -> None:
         self.slider_canvas.configure(scrollregion=self.slider_canvas.bbox("all"))
@@ -459,7 +532,7 @@ class LogAnalyzerApp:
         for child in self.keyword_list_inner.winfo_children():
             child.destroy()
 
-        source_blocks = self.exception_blocks if self.exception_blocks else []
+        source_blocks = [self._build_stack_current_text(i) for i in range(len(self.exception_blocks))]
         keyword_counts: dict[str, int] = {}
         for keyword in self.applied_keywords:
             total = 0
@@ -518,6 +591,7 @@ class LogAnalyzerApp:
         normalized = keyword.strip()
         if not normalized:
             return
+        self.content_notebook.select(self.analysis_tab)
         is_same_term = self.search_var.get().strip().lower() == normalized.lower()
         self.search_var.set(normalized)
         if is_same_term and self.highlights:
@@ -529,6 +603,7 @@ class LogAnalyzerApp:
         normalized = keyword.strip()
         if not normalized:
             return
+        self.content_notebook.select(self.analysis_tab)
         is_same_term = self.search_var.get().strip().lower() == normalized.lower()
         self.search_var.set(normalized)
         if is_same_term and self.highlights:
@@ -579,14 +654,12 @@ class LogAnalyzerApp:
         self._update_reload_state()
 
     def _reload_current_file_with_new_context(self) -> None:
-        if not self.file_path:
+        if not self.file_paths:
             return
 
         self.reload_keep_index = max(self.selected_block_index, 0)
-        self.status_var.set(f"Recarregando com contexto {self.context_var.get()}...")
-        self.btn_open.configure(state="disabled")
-        self.reload_context_button.configure(state="disabled")
-        thread = threading.Thread(target=self._analyze_file_worker, args=(self.file_path,), daemon=True)
+        self._set_loading(True, f"Recarregando com contexto {self.context_var.get()}...")
+        thread = threading.Thread(target=self._analyze_files_worker, args=(list(self.file_paths),), daemon=True)
         thread.start()
 
     def _bind_shortcuts(self) -> None:
@@ -598,52 +671,89 @@ class LogAnalyzerApp:
         self.root.bind("<Configure>", self._on_root_resized)
 
     def open_file(self) -> None:
-        selected = filedialog.askopenfilename(
-            title="Selecione um arquivo de log",
+        selected = filedialog.askopenfilenames(
+            title="Selecione um ou mais arquivos de log",
             filetypes=[("Arquivos de log", "*.log *.txt *.out *.trace"), ("Todos os arquivos", "*.*")],
         )
         if not selected:
             return
 
-        candidate = Path(selected)
-        valid, error = validate_input_path(candidate, max_file_size_mb=MAX_FILE_SIZE_MB)
-        if not valid:
-            messagebox.showerror("Erro", error)
+        candidates = [Path(item) for item in selected]
+        invalids: list[str] = []
+        for candidate in candidates:
+            valid, error = validate_input_path(candidate, max_file_size_mb=MAX_FILE_SIZE_MB)
+            if not valid:
+                invalids.append(f"{candidate.name}: {error}")
+        if invalids:
+            messagebox.showerror("Erro", "\n".join(invalids))
             return
 
-        self.file_path = candidate
+        self.file_paths = candidates
         self.reload_keep_index = 0
         self.pending_context_reload = False
         self.pending_keyword_reload = False
         self._set_reload_button_visible(False)
-        self.status_var.set("Analisando arquivo...")
-        self.btn_open.configure(state="disabled")
+        self._set_loading(True, f"Analisando {len(candidates)} arquivo(s)...")
 
-        thread = threading.Thread(target=self._analyze_file_worker, args=(candidate,), daemon=True)
+        thread = threading.Thread(target=self._analyze_files_worker, args=(candidates,), daemon=True)
         thread.start()
 
-    def _analyze_file_worker(self, path: Path) -> None:
+    def _analyze_files_worker(self, paths: list[Path]) -> None:
         try:
-            with path.open("r", encoding="utf-8", errors="replace") as file_obj:
-                source_lines = file_obj.readlines()
+            combined_blocks: list[str] = []
+            block_sources: list[list[str]] = []
+            block_source_paths: list[Path] = []
+            combined_source_lines: list[str] = []
+            for path in paths:
+                with path.open("r", encoding="utf-8", errors="replace") as file_obj:
+                    source_lines = file_obj.readlines()
+                combined_source_lines.extend(source_lines)
 
-            result = extract_exception_blocks_from_lines(
-                source_lines,
-                context=self.context_var.get(),
-                keywords=self._active_keywords_in_order(),
-                ignored_terms=self.ignored_terms,
-            )
+                result = extract_exception_blocks_from_lines(
+                    source_lines,
+                    context=self.context_var.get(),
+                    keywords=self._active_keywords_in_order(),
+                    ignored_terms=self.ignored_terms,
+                )
+
+                for block in result.blocks:
+                    combined_blocks.append(f"[Arquivo: {path.name}]\n{block}")
+                    block_sources.append(source_lines)
+                    block_source_paths.append(path)
+
+            if combined_blocks:
+                content = ("\n" + ("-" * 72) + "\n").join(combined_blocks)
+            else:
+                content = "Nenhuma excecao encontrada no log."
             self.root.after(
                 0,
-                lambda: self._on_analysis_success(path, result.content, list(result.blocks), source_lines),
+                lambda: self._on_analysis_success(
+                    paths,
+                    content,
+                    combined_blocks,
+                    block_sources,
+                    block_source_paths,
+                    combined_source_lines,
+                ),
             )
         except Exception as exc:
             self.root.after(0, lambda: self._on_analysis_error(str(exc)))
 
-    def _on_analysis_success(self, path: Path, content: str, blocks: list[str], source_lines: list[str]) -> None:
+    def _on_analysis_success(
+        self,
+        paths: list[Path],
+        content: str,
+        blocks: list[str],
+        block_sources: list[list[str]],
+        block_source_paths: list[Path],
+        combined_source_lines: list[str],
+    ) -> None:
         self.analysis_content = content
-        self.source_lines = source_lines
+        self.source_lines = combined_source_lines
+        self.all_source_lines = combined_source_lines
         self.exception_blocks = blocks
+        self.block_sources = block_sources
+        self.block_source_paths = block_source_paths
         self.highlights = []
         self.current_highlight_index = -1
         self.matches_card.set("0")
@@ -653,14 +763,16 @@ class LogAnalyzerApp:
         self.pending_context_reload = False
         self.pending_keyword_reload = False
 
-        self.file_card.set(path.name)
+        if len(paths) == 1:
+            self.file_card.set(paths[0].name)
+        else:
+            self.file_card.set(f"{len(paths)} arquivos")
         self.blocks_card.set(str(len(blocks)))
-        self.status_var.set(f"Arquivo: {path}")
-        self.btn_open.configure(state="normal")
-        self.reload_context_button.configure(state="normal")
+        self._set_loading(False, f"Arquivos analisados: {len(paths)}")
         self._set_filters_visible(True)
         self._update_reload_state()
         self._refresh_found_keywords_panel()
+        self._refresh_severity_report()
 
         self._populate_exception_cards(blocks)
 
@@ -672,6 +784,7 @@ class LogAnalyzerApp:
             self.displayed_content = content
             self._set_output_text(content)
             self._refresh_found_keywords_panel()
+            self._refresh_severity_report()
         self.reload_keep_index = 0
 
     def _populate_exception_cards(self, blocks: list[str]) -> None:
@@ -749,26 +862,30 @@ class LogAnalyzerApp:
         self.slider_canvas.xview_moveto(0)
 
     def _build_block_title(self, index: int, block: str) -> str:
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        summary = lines[0] if lines else "Sem conteudo"
+        meta = self._parse_block_metadata(block)
+        summary = "Sem conteudo"
+        if meta.first_hit_line is not None:
+            summary = f"Linha {meta.first_hit_line}"
+        if meta.file_label:
+            summary = f"{meta.file_label} | {summary}"
         if len(summary) > 58:
             summary = summary[:58].rstrip() + "..."
         return f"Bloco {index + 1}: {summary}"
 
     def _build_block_preview(self, block: str) -> str:
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        if len(lines) < 2:
+        meta = self._parse_block_metadata(block)
+        if not meta.body_lines:
             return "Clique para visualizar o trecho completo."
-        preview = lines[1]
+        preview = meta.body_lines[0].strip()
         if len(preview) > 75:
             preview = preview[:75].rstrip() + "..."
         return preview
 
     def _build_stack_button_description(self, block: str) -> str:
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        if len(lines) < 2:
+        meta = self._parse_block_metadata(block)
+        if not meta.body_lines:
             return "Detalhes do bloco"
-        description = lines[1]
+        description = meta.body_lines[0].strip()
         if len(description) > 42:
             description = description[:42].rstrip() + "..."
         return description
@@ -777,9 +894,11 @@ class LogAnalyzerApp:
         if index < 0 or index >= len(self.exception_blocks):
             return
 
+        current_y = self.output.yview()[0] if self.output.winfo_exists() else 0.0
         self.selected_block_index = index
         self.displayed_content = self._build_stack_current_text(index)
         self._set_output_text(self.displayed_content)
+        self.output.yview_moveto(current_y)
 
         for idx, btn in enumerate(self.block_buttons):
             if idx == index:
@@ -787,6 +906,8 @@ class LogAnalyzerApp:
             else:
                 btn.configure(bg="#1E2530", fg="#DCE7F3", activebackground="#2A3342", activeforeground="#FFFFFF")
 
+        if index < len(self.block_buttons):
+            self.block_buttons[index].focus_set()
         self._ensure_selected_card_visible(index)
         self._render_current_search_highlights()
 
@@ -925,8 +1046,10 @@ class LogAnalyzerApp:
         self._set_scrolled_text(self.stack_above_output, above_text)
         self._set_scrolled_text(self.stack_current_output, block_text)
         if self.stack_context_info_label is not None:
+            file_label = self._parse_block_metadata(self.exception_blocks[self.stack_current_block_index]).file_label
+            file_part = f" ({file_label})" if file_label else ""
             self.stack_context_info_label.configure(
-                text=f"Bloco {self.stack_current_block_index + 1} com {above_count} linhas acima."
+                text=f"Bloco {self.stack_current_block_index + 1}{file_part} com {above_count} linhas acima."
             )
 
     def _set_scrolled_text(self, widget: scrolledtext.ScrolledText, text: str) -> None:
@@ -938,7 +1061,8 @@ class LogAnalyzerApp:
     def _build_stack_above_text(self, block_index: int, above_count: int) -> str:
         if block_index < 0 or block_index >= len(self.exception_blocks):
             return "Bloco invalido."
-        if not self.source_lines:
+        source_lines = self.block_sources[block_index] if block_index < len(self.block_sources) else []
+        if not source_lines:
             return "Nao foi possivel carregar as linhas do arquivo para exibir o contexto acima."
 
         first_hit_line = self._extract_first_hit_line_number(self.exception_blocks[block_index])
@@ -947,7 +1071,7 @@ class LogAnalyzerApp:
 
         hit_idx = max(0, first_hit_line - 1)
         start_idx = max(0, hit_idx - above_count)
-        context_lines = self.source_lines[start_idx:hit_idx]
+        context_lines = source_lines[start_idx:hit_idx]
         if not context_lines:
             return "Nao existem linhas anteriores para este bloco."
 
@@ -962,26 +1086,109 @@ class LogAnalyzerApp:
             return "Bloco invalido."
 
         block = self.exception_blocks[block_index]
-        lines = block.splitlines()
-        if len(lines) <= 1:
+        meta = self._parse_block_metadata(block)
+        if not meta.body_lines:
             return block
+        if meta.first_hit_line is None:
+            return "\n".join(meta.body_lines)
 
-        first_hit_line = self._extract_first_hit_line_number(block)
-        if first_hit_line is None:
-            return block
-
-        numbered_lines = [
-            f"{line_no:>6}: {line.rstrip()}"
-            for line_no, line in enumerate(lines[1:], start=first_hit_line)
-        ]
+        numbered_lines = [f"{line_no:>6}: {line.rstrip()}" for line_no, line in enumerate(meta.body_lines, start=meta.first_hit_line)]
         return "\n".join(numbered_lines)
 
     def _extract_first_hit_line_number(self, block: str) -> int | None:
-        header = block.splitlines()[0].strip() if block.splitlines() else ""
-        match = re.search(r"\d+", header)
-        if not match:
-            return None
-        return int(match.group())
+        lines = block.splitlines()
+        for line in lines[:3]:
+            match = re.match(r"^\[Linha(?:s)?\s+([0-9,\s]+)\]$", line.strip())
+            if not match:
+                continue
+            digits = re.search(r"\d+", match.group(1))
+            if digits:
+                return int(digits.group())
+        return None
+
+    def _parse_block_metadata(self, block: str) -> BlockMetadata:
+        lines = block.splitlines()
+        idx = 0
+        file_label: str | None = None
+
+        if idx < len(lines):
+            file_match = re.match(r"^\[Arquivo:\s*(.+)\]$", lines[idx].strip())
+            if file_match:
+                file_label = file_match.group(1).strip()
+                idx += 1
+
+        line_header_consumed = False
+        if idx < len(lines):
+            line_header_consumed = re.match(r"^\[Linha(?:s)?\s+[0-9,\s]+\]$", lines[idx].strip()) is not None
+            if line_header_consumed:
+                idx += 1
+
+        first_hit_line = self._extract_first_hit_line_number(block)
+        body_lines = lines[idx:] if line_header_consumed or file_label is not None else lines
+        return BlockMetadata(file_label=file_label, first_hit_line=first_hit_line, body_lines=body_lines)
+
+    def _refresh_severity_report(self) -> None:
+        severity_order = ("Exception", "Error", "Info")
+        counts: dict[str, int] = {}
+        for severity in severity_order:
+            pattern = re.compile(re.escape(severity), re.IGNORECASE)
+            counts[severity] = sum(len(pattern.findall(line)) for line in self.all_source_lines)
+
+        for severity in severity_order:
+            lines = [f"Categoria: {severity}", f"Incidencias totais: {counts[severity]}", ""]
+            if not self.all_source_lines:
+                lines.append("Nenhum arquivo analisado.")
+            else:
+                lines.append("Excecao de maior incidencia nesta categoria:")
+                lines.append("")
+                lines.extend(self._build_top_severity_snippet(severity, max_lines=10))
+
+            self._set_report_tab_text(severity, "\n".join(lines))
+
+    def _set_report_tab_text(self, severity: str, text: str) -> None:
+        output = self.report_outputs.get(severity)
+        if output is None:
+            return
+        output.configure(state="normal")
+        output.delete("1.0", tk.END)
+        output.insert(tk.END, text)
+        output.configure(state="disabled")
+
+    def _build_top_severity_snippet(self, severity: str, max_lines: int = 10) -> list[str]:
+        pattern = re.compile(re.escape(severity), re.IGNORECASE)
+        top_index = -1
+        top_hits = 0
+        top_meta: BlockMetadata | None = None
+
+        for idx, block in enumerate(self.exception_blocks):
+            meta = self._parse_block_metadata(block)
+            if not meta.body_lines:
+                continue
+            hits = sum(len(pattern.findall(line)) for line in meta.body_lines)
+            if hits <= 0:
+                continue
+            if hits > top_hits:
+                top_hits = hits
+                top_index = idx
+                top_meta = meta
+
+        if top_meta is None:
+            return ["Sem ocorrencias para esta severidade."]
+
+        start_line = top_meta.first_hit_line if top_meta.first_hit_line is not None else 1
+        file_label = top_meta.file_label or (
+            self.block_source_paths[top_index].name if top_index < len(self.block_source_paths) else "desconhecido"
+        )
+        lines = [
+            f"- Bloco {top_index + 1} | Arquivo: {file_label} | Linha inicial: {start_line} | Incidencias no bloco: {top_hits}"
+        ]
+
+        clipped = top_meta.body_lines[:max_lines]
+        for offset, line in enumerate(clipped):
+            lines.append(f"  {start_line + offset:>6}: {line.rstrip()}")
+        if len(top_meta.body_lines) > max_lines:
+            lines.append("  ...")
+        return lines
 
     def open_keywords_modal(self) -> None:
         if self.keyword_modal is not None and self.keyword_modal.winfo_exists():
@@ -1341,9 +1548,7 @@ class LogAnalyzerApp:
         return None
 
     def _on_analysis_error(self, error_message: str) -> None:
-        self.btn_open.configure(state="normal")
-        self.reload_context_button.configure(state="normal")
-        self.status_var.set("Falha na analise")
+        self._set_loading(False, "Falha na analise")
         messagebox.showerror("Erro na analise", f"Nao foi possivel processar o arquivo.\n{error_message}")
 
     def _set_output_text(self, text: str) -> None:
@@ -1353,11 +1558,15 @@ class LogAnalyzerApp:
         self.output.configure(state="disabled")
 
     def clear_view(self) -> None:
-        self.file_path = None
+        self._set_loading(False)
+        self.file_paths = []
         self.analysis_content = ""
         self.displayed_content = ""
         self.source_lines = []
+        self.all_source_lines = []
         self.exception_blocks = []
+        self.block_sources = []
+        self.block_source_paths = []
         self.selected_block_index = -1
         self.highlights = []
         self.current_highlight_index = -1
@@ -1372,6 +1581,7 @@ class LogAnalyzerApp:
         self._set_output_text("")
         self._populate_exception_cards([])
         self._refresh_found_keywords_panel()
+        self._refresh_severity_report()
         self._set_filters_visible(False)
 
         self.file_card.set("-")
@@ -1474,8 +1684,13 @@ class LogAnalyzerApp:
             return
 
         block_index, _start, _end = self.highlights[index]
+        self.content_notebook.select(self.analysis_tab)
         if self.exception_blocks and block_index != self.selected_block_index:
             self._select_exception_block(block_index)
+        elif self.exception_blocks:
+            self._ensure_selected_card_visible(block_index)
+            if block_index < len(self.block_buttons):
+                self.block_buttons[block_index].focus_set()
         self._render_current_search_highlights()
 
     def next_highlight(self) -> None:
